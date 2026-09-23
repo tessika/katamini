@@ -1,14 +1,14 @@
-const KEY = "katamini-music-muted"
 const EVENT = "katamini-music"
 
+let muted = false
+
 export function musicMuted(): boolean {
-  if (typeof sessionStorage === "undefined") return false
-  return sessionStorage.getItem(KEY) === "1"
+  return muted
 }
 
-export function setMusicMuted(muted: boolean) {
-  sessionStorage.setItem(KEY, muted ? "1" : "0")
-  window.dispatchEvent(new Event(EVENT))
+export function setMusicMuted(next: boolean) {
+  muted = next
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(EVENT))
 }
 
 export function subscribeMusicMuted(onChange: () => void) {

@@ -322,36 +322,27 @@ const Game: React.FC<{ level: LevelDoc; onExit: (report?: PlayReport) => void; m
       1000
     );
     const renderer = new THREE.WebGLRenderer({
-      antialias: true,
+      antialias: false,
+      powerPreference: "high-performance",
     });
-      
-    // Set the size of the renderer to the window size
     renderer.setSize(window.innerWidth, window.innerHeight);
-
-    // Adjust the pixel ratio to lower the resolution on mobile
-    if (isMobileDevice) {
-      renderer.setPixelRatio(window.devicePixelRatio / 2); // Adjust this value as needed
-    } else {
-      renderer.setPixelRatio(window.devicePixelRatio);
-    }
-      
-    renderer.shadowMap.enabled = true;
+    renderer.setPixelRatio(1);
+    renderer.shadowMap.enabled = false;
     mountRef.current.appendChild(renderer.domElement);
 
-    // Lighting setup
-    const ambientLight = new THREE.AmbientLight(0x404040, 1);
-    scene.add(ambientLight);
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    directionalLight.position.set(10, 20, 10);
-    directionalLight.castShadow = true;
-    directionalLight.shadow.mapSize.width = 1200;
-    directionalLight.shadow.mapSize.height = 1200;
-    directionalLight.shadow.camera.near = 0.6;
-    directionalLight.shadow.camera.far = 50;
-    scene.add(directionalLight);
+    const pixelate = (texture: THREE.Texture) => {
+      texture.magFilter = THREE.NearestFilter;
+      texture.minFilter = THREE.NearestFilter;
+      texture.generateMipmaps = false;
+      texture.anisotropy = 1;
+      return texture;
+    };
 
-    const hemisphereLight = new THREE.HemisphereLight(0xffffff, 0xffcacc, 0.3);
-    scene.add(hemisphereLight);
+    // One ambient fill and one directional. No shadow maps.
+    scene.add(new THREE.AmbientLight(0x808080, 1.1));
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.7);
+    directionalLight.position.set(10, 20, 10);
+    scene.add(directionalLight);
 
     // Room setup
     let wallTexture;
@@ -371,20 +362,20 @@ const Game: React.FC<{ level: LevelDoc; onExit: (report?: PlayReport) => void; m
 	    video.muted = true;
 	    video.play();
 
-	    wallTexture = new THREE.VideoTexture(video);
+	    wallTexture = pixelate(new THREE.VideoTexture(video));
 	    wallTexture.wrapS = THREE.RepeatWrapping;
 	    wallTexture.wrapT = THREE.RepeatWrapping;
             wallTexture.repeat.set(wallRepeat[0], wallRepeat[1]);
 
 	  } else {
-	    wallTexture = new THREE.TextureLoader().load(currentLevel.wallTexture);
+	    wallTexture = pixelate(new THREE.TextureLoader().load(currentLevel.wallTexture));
 	    wallTexture.wrapS = THREE.RepeatWrapping;
 	    wallTexture.wrapT = THREE.RepeatWrapping;
             wallTexture.repeat.set(wallRepeat[0], wallRepeat[1]);
 
 	  }
 	} else {
-	  wallTexture = new THREE.TextureLoader().load("textures/wall_shoji.png");
+	  wallTexture = pixelate(new THREE.TextureLoader().load("textures/wall_shoji.png"));
 	  wallTexture.wrapS = THREE.RepeatWrapping;
 	  wallTexture.wrapT = THREE.RepeatWrapping;
           wallTexture.repeat.set(wallRepeat[0], wallRepeat[1]);
@@ -392,11 +383,9 @@ const Game: React.FC<{ level: LevelDoc; onExit: (report?: PlayReport) => void; m
 
 	const roomSize = currentLevel.roomSize || 50;
 	const roomGeometry = new THREE.BoxGeometry(roomSize, 20, roomSize);
-	const roomMaterial = new THREE.MeshStandardMaterial({
+	const roomMaterial = new THREE.MeshLambertMaterial({
 	  map: wallTexture,
 	  side: THREE.BackSide,
-	  roughness: 0.8,
-	  metalness: 0.0,
 	});
      const room = new THREE.Mesh(roomGeometry, roomMaterial);
      room.position.y = 10;
@@ -404,7 +393,7 @@ const Game: React.FC<{ level: LevelDoc; onExit: (report?: PlayReport) => void; m
 
 
     // Floor setup
-    const floorTexture = new THREE.TextureLoader().load(currentLevel.floorTexture || "textures/floor_carpet.jpg");
+    const floorTexture = pixelate(new THREE.TextureLoader().load(currentLevel.floorTexture || "textures/floor_carpet.jpg"));
     floorTexture.wrapS = THREE.RepeatWrapping;
     floorTexture.wrapT = THREE.RepeatWrapping;
 
@@ -414,10 +403,8 @@ const Game: React.FC<{ level: LevelDoc; onExit: (report?: PlayReport) => void; m
       floorTexture.repeat.set(20, 20); // Default repeat values
     }
 
-    const floorMaterial = new THREE.MeshStandardMaterial({
+    const floorMaterial = new THREE.MeshLambertMaterial({
       map: floorTexture,
-      roughness: 1.0,
-      metalness: 0.0,
       side: THREE.DoubleSide,
     });
 
@@ -425,38 +412,33 @@ const Game: React.FC<{ level: LevelDoc; onExit: (report?: PlayReport) => void; m
     const floor = new THREE.Mesh(floorGeometry, floorMaterial);
     floor.rotation.x = -Math.PI / 2;
     floor.position.y = 0.01;
-    floor.receiveShadow = true;
     scene.add(floor);
 
     // Player setup
-    const playerGeometry = new THREE.CylinderGeometry(0.5, 0.5, 0.2, 32);
-    const playerMaterial = new THREE.MeshStandardMaterial({
+    const playerGeometry = new THREE.CylinderGeometry(0.5, 0.5, 0.2, 10);
+    const playerMaterial = new THREE.MeshLambertMaterial({
       color: 0x303030,
-      roughness: 0.7,
-      metalness: 0.3,
     });
     const player = new THREE.Mesh(playerGeometry, playerMaterial);
     playerRef.current = player;
 
     // Roomba details
     const topDisc = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.45, 0.45, 0.05, 32),
-      new THREE.MeshStandardMaterial({ color: 0x404040 })
+      new THREE.CylinderGeometry(0.45, 0.45, 0.05, 10),
+      new THREE.MeshLambertMaterial({ color: 0x404040 })
     );
     topDisc.position.y = 0.1;
     player.add(topDisc);
 
     const sensorBump = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.1, 0.1, 0.1, 16),
-      new THREE.MeshStandardMaterial({ color: 0x202020 })
+      new THREE.CylinderGeometry(0.1, 0.1, 0.1, 6),
+      new THREE.MeshLambertMaterial({ color: 0x202020 })
     );
     sensorBump.position.set(0, 0.15, 0.3);
     player.add(sensorBump);
 
     player.scale.setScalar(playerSizeRef.current * 0.25);
     player.position.y = 0.1 * player.scale.y;
-    player.castShadow = true;
-    player.receiveShadow = true;
     scene.add(player);
 
     // Collected objects container
@@ -556,12 +538,62 @@ const Game: React.FC<{ level: LevelDoc; onExit: (report?: PlayReport) => void; m
 
     // Player movement properties
     const playerVelocity = new THREE.Vector3();
+    const clingSphere = new THREE.Vector3();
+    const clingPile = new THREE.Vector3();
+    const placeCling = (child: THREE.Object3D) => {
+      const cling = child.userData.cling as { theta: number; phi: number; pile: number; lift: number } | undefined;
+      if (!cling) return;
+      const size = playerSizeRef.current;
+      const scale = Math.max(size * 0.25, 0.05);
+      const orbit = scale * 0.5;
+      const theta = cling.theta + Math.atan2(playerVelocity.x, playerVelocity.z) * playerVelocity.length() * 2;
+      clingSphere.set(
+        orbit * Math.sin(cling.phi) * Math.cos(theta),
+        orbit * Math.sin(cling.phi) * Math.sin(theta),
+        orbit * Math.cos(cling.phi)
+      );
+      const pileRadius = orbit * (0.15 + cling.pile * 0.7);
+      clingPile.set(
+        pileRadius * Math.cos(theta),
+        scale * 0.12 + cling.lift * Math.max(orbit * 0.55, 0.06),
+        pileRadius * Math.sin(theta)
+      );
+      // Small roomba: stack on the top face. Large roomba: the full ball.
+      const onTop = 1 - THREE.MathUtils.smoothstep(size, 1.5, 7);
+      child.position.lerpVectors(clingSphere, clingPile, onTop);
+    };
     const playerDirection = new THREE.Vector3(0, 0, -1);
+    const moveDirection = new THREE.Vector3();
+    const nextPosition = new THREE.Vector3();
+    const camUp = new THREE.Vector3(0, 1, 0);
+    const idealOffset = new THREE.Vector3();
+    const lookTarget = new THREE.Vector3();
+    const push = new THREE.Vector3();
+    let burden = 0;
+    let burdenKey = -1;
+    const noteBurden = () => {
+      const size = playerSizeRef.current;
+      const count = collectedObjectsContainer.children.length;
+      const key = size * 1000 + count;
+      if (key === burdenKey) return;
+      burdenKey = key;
+      if (size < 8) {
+        burden = 0;
+        return;
+      }
+      let heavy = 0;
+      const kids = collectedObjectsContainer.children;
+      for (let i = 0; i < kids.length; i++) {
+        const itemSize = kids[i].userData.size as number;
+        if (itemSize >= size * 0.65) heavy++;
+      }
+      burden = heavy > 3 ? Math.min(1, (heavy - 3) / 8) : 0;
+    };
+    let placedSize = 0.5;
     const rotationSpeed = 0.03;
     const acceleration = 0.003;
     const maxSpeed = 0.4;
     const friction = 0.9;
-    const bounceForce = 0.4;
     const gravity = 0.01;
     const jumpForce = 0.2;
     let isGrounded = false;
@@ -575,6 +607,10 @@ const Game: React.FC<{ level: LevelDoc; onExit: (report?: PlayReport) => void; m
 
     camera.position.copy(player.position).add(cameraOffset);
     camera.lookAt(player.position);
+    const ndc = new THREE.Vector3();
+    const aheadPoint = new THREE.Vector3();
+    const framedPos = new THREE.Vector3();
+    const heldCam = new THREE.Vector3();
 
     let startTime = Date.now();
     let driveDistance = 0;
@@ -595,13 +631,6 @@ const Game: React.FC<{ level: LevelDoc; onExit: (report?: PlayReport) => void; m
       }
       frameId = requestAnimationFrame(animate);
         
-      // Update time elapsed
-      if (!finishedRef.current) {
-        const currentTime = Date.now();
-        const elapsedSeconds = Math.floor((currentTime - startTime) / 1000);
-        setGameState(prev => ({ ...prev, timeElapsed: elapsedSeconds }));
-      }
-
       // Check if all objects are captured
       if (spawned === expectedSpawns && remaining === 0 && !finishedRef.current) {
         console.log("Game Completed!", time, gameState, objects.length);
@@ -618,87 +647,34 @@ const Game: React.FC<{ level: LevelDoc; onExit: (report?: PlayReport) => void; m
         return;
       }
 
-      // Find the smallest remaining object
-      const smallestObject = objects.reduce(
-        (smallest, obj) => {
-        if (obj.parent === scene && obj.userData.size < smallest.userData.size) {
-          return obj;
-        }
-        return smallest;
-      },
-      { userData: { size: Infinity } }
-    );
-
-    // Update aura uniforms and visibility
-    objects.forEach((object, index) => {
-      if (object.parent === scene) {
-        const aura = auras[index];
-        if (aura) {
-          const auraMaterial = aura.material;
-          if (!Array.isArray(auraMaterial) && auraMaterial.uniforms?.time) {
-            auraMaterial.uniforms.time.value = time;
-          }
-          aura.visible =
-            object.userData.size <=
-            Math.max(playerSizeRef.current * 1.2, smallestObject.userData.size);
-        }
-      }
-    });
-
     // Keep the roomba a disc. Overlapping hits used to squash it flatter every frame.
     player.scale.setScalar(playerSizeRef.current * 0.25);
-
-    // Wobble and drag stay off while the roomba is small. They fade in only
-    // after it has grown and is carrying several objects that are large for it.
-    let carried = 0;
-    let momentX = 0;
-    let momentZ = 0;
-    const playerCm = Math.max(playerSizeRef.current, 0.05);
-    if (playerCm >= 8) {
-      collectedObjectsContainer.children.forEach((child) => {
-        const size = Number(child.userData.size) || 0;
-        const relative = size / playerCm;
-        if (relative < 0.65) return;
-        const weight = relative * relative;
-        carried += weight;
-        momentX += child.position.x * weight;
-        momentZ += child.position.z * weight;
-      });
-    }
-    const carryRadius = Math.max(player.scale.x * 0.5, 0.05);
-    const imbalance = carried > 0
-      ? Math.min(1, Math.hypot(momentX, momentZ) / carried / carryRadius)
-      : 0;
-    const load = THREE.MathUtils.smoothstep(carried, 4, 12);
-    const burden = load * (0.2 + imbalance * 0.25);
+    noteBurden();
     const wobbleAmount = currentLevel.handling.wobble;
     const dragAmount = currentLevel.handling.drag;
-    const tilt = load * Math.min(0.14, wobbleAmount * (0.35 + imbalance) * 0.07);
-    player.rotation.x = THREE.MathUtils.lerp(player.rotation.x, Math.cos(time * 2.1) * tilt, 0.15);
-    player.rotation.z = THREE.MathUtils.lerp(player.rotation.z, Math.sin(time * 2.7) * tilt, 0.15);
-    const turnSpeed = rotationSpeed * (1 - Math.min(0.35, burden * dragAmount * 0.25));
+    const tilt = burden * wobbleAmount * 0.08;
+    const turnSpeed = rotationSpeed * (1 - Math.min(0.3, burden * dragAmount * 0.25));
 
     // Player movement using keysRef
-    const moveDirection = new THREE.Vector3();
+    moveDirection.set(0, 0, 0);
     if (keysRef.current.ArrowUp) moveDirection.z -= 1;
     if (keysRef.current.ArrowDown) moveDirection.z += 1;
     
     if (keysRef.current.ArrowLeft) {
-      playerDirection.applyAxisAngle(new THREE.Vector3(0, 1, 0), turnSpeed);
+      playerDirection.applyAxisAngle(camUp, turnSpeed);
     }
     if (keysRef.current.ArrowRight) {
-      playerDirection.applyAxisAngle(new THREE.Vector3(0, 1, 0), -turnSpeed);
+      playerDirection.applyAxisAngle(camUp, -turnSpeed);
     }
-    if (load > 0 && wobbleAmount > 0 && (moveDirection.z !== 0 || keysRef.current.ArrowLeft || keysRef.current.ArrowRight)) {
-      playerDirection.applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.sin(time * 2.4) * tilt * 0.012);
+    if (tilt > 0 && (moveDirection.z !== 0 || keysRef.current.ArrowLeft || keysRef.current.ArrowRight)) {
+      playerDirection.applyAxisAngle(camUp, Math.sin(time * 2.4) * tilt * 0.012);
     }
 
-    const speedScale = 1 / (1 + burden * dragAmount);
+    const speedScale = 1 / (1 + burden * dragAmount * 0.8);
     let dynamicMaxSpeed = maxSpeed * (1 + playerSizeRef.current * 0.6) * speedScale;
     const dynamicAcceleration = acceleration * (1 + playerSizeRef.current * 0.4) * speedScale;
-    playerVelocity.add(
-      playerDirection.clone().multiplyScalar(moveDirection.z * dynamicAcceleration)
-    );
+    playerVelocity.x += playerDirection.x * moveDirection.z * dynamicAcceleration;
+    playerVelocity.z += playerDirection.z * moveDirection.z * dynamicAcceleration;
 
     playerVelocity.y -= gravity;
 
@@ -721,20 +697,48 @@ const Game: React.FC<{ level: LevelDoc; onExit: (report?: PlayReport) => void; m
     }
 
     // Calculate next position
-    const nextPosition = player.position.clone().add(playerVelocity);
+    nextPosition.copy(player.position).add(playerVelocity);
     const halfRoomSize = (roomSize / 2) - 0.15; // Room size minus bits
     nextPosition.x = Math.max(-halfRoomSize, Math.min(halfRoomSize, nextPosition.x));
     nextPosition.z = Math.max(-halfRoomSize, Math.min(halfRoomSize, nextPosition.z));
 
-    // Check collisions with objects
-    let collisionOccurred = false;
-    objects.forEach((object, index) => {
-      if (object.parent === scene) {
-        const combinedRadius = player.scale.x * 0.5 + (object.userData.radius ?? object.userData.size / 2);
-        const distance = Math.hypot(nextPosition.x - object.position.x, nextPosition.z - object.position.z);
-
-        if (distance < combinedRadius) {
-          if (object.userData.size <= Math.max(playerSizeRef.current * 1.2, smallestObject.userData.size)) {
+    // One pass: pickup glow and collisions. Collected props leave the list.
+    let smallestSize = Infinity;
+    for (let scan = 0; scan < objects.length; scan++) {
+      const item = objects[scan];
+      if (item.parent === scene && item.userData.size < smallestSize) smallestSize = item.userData.size;
+    }
+    let focusExtent = player.scale.x;
+    const reach = playerSizeRef.current * 1.2;
+    const canPick = Math.max(reach, smallestSize);
+    const tickAuras = (Math.floor(time * 20) % 3) === 0;
+    for (let index = objects.length - 1; index >= 0; index--) {
+      const object = objects[index];
+      if (object.parent !== scene) {
+        objects.splice(index, 1);
+        auras.splice(index, 1);
+        continue;
+      }
+      const size = object.userData.size as number;
+      const aura = auras[index];
+      if (aura) {
+        aura.visible = size <= canPick;
+        if (tickAuras && aura.visible) {
+          const auraMaterial = aura.material;
+          if (!Array.isArray(auraMaterial) && auraMaterial.uniforms?.time) {
+            auraMaterial.uniforms.time.value = time;
+          }
+        }
+      }
+      if (size <= reach) {
+        const extent = object.userData.extent as number;
+        if (extent > focusExtent) focusExtent = extent;
+      }
+      const combinedRadius = player.scale.x * 0.5 + (object.userData.radius ?? size / 2);
+      const dx = nextPosition.x - object.position.x;
+      const dz = nextPosition.z - object.position.z;
+      if (dx * dx + dz * dz < combinedRadius * combinedRadius) {
+          if (size <= canPick) {
             // Object collection logic
             scene.remove(object);
             if (syncPickups && object.userData.propId) {
@@ -747,38 +751,21 @@ const Game: React.FC<{ level: LevelDoc; onExit: (report?: PlayReport) => void; m
             }
             remaining--;
 
-            // Position on sphere surface
-            const u = Math.random();
-            const v = Math.random();
-            const radius = player.scale.x * 0.5;
-
-            const theta = 2 * Math.PI * u;
-            const phi = Math.acos(2 * v - 1);
-
-            const surfacePosition = new THREE.Vector3(
-              radius * Math.sin(phi) * Math.cos(theta),
-              radius * Math.sin(phi) * Math.sin(theta),
-              radius * Math.cos(phi)
-            );
-
-            object.userData.initialPosition = {
-              theta: theta,
-              phi: phi,
-              radius: radius,
+            object.userData.cling = {
+              theta: Math.random() * Math.PI * 2,
+              phi: Math.acos(2 * Math.random() - 1),
+              pile: Math.random(),
+              lift: Math.random(),
             };
-
-            object.position.copy(surfacePosition);
-            surfacePosition.add(
-              new THREE.Vector3(
-                (Math.random() - 0.5) * 0.05,
-                (Math.random() - 0.5) * 0.05,
-                (Math.random() - 0.5) * 0.05
-              ).multiplyScalar(player.scale.x)
-            );
+            const surfacePosition = object.position;
 
             const scaleFactor = Math.min(1.2, object.userData.size / playerSizeRef.current);
             object.scale.multiplyScalar(scaleFactor * 0.8);
-            collectedObjectsContainer.add(object);  
+            collectedObjectsContainer.add(object);
+            placeCling(object);
+            burdenKey = -1;
+            objects.splice(index, 1);
+            auras.splice(index, 1);
 
             const pickupSound = new Audio(object.userData.sound || "music/blips/0" + randoSeed(1, 9) + ".mp3");
             pickupSound.volume = 0.2;
@@ -801,17 +788,7 @@ const Game: React.FC<{ level: LevelDoc; onExit: (report?: PlayReport) => void; m
 
               if (allObjectsInClassCaptured && prev.currentClass < sizeTiers.length - 1) {
                 newClass += 1;
-                const nextTier = sizeTiers[newClass];
-                let nextExtent = 0;
-                objects.forEach((candidate) => {
-                  if (candidate.parent !== scene) return;
-                  const size = candidate.userData.size as number;
-                  const extent = candidate.userData.extent as number;
-                  if (size >= nextTier.min && size <= nextTier.max && extent > nextExtent) nextExtent = extent;
-                });
-                const stepped = prev.playerSize * currentLevel.growth;
-                const fitted = nextExtent > 0 ? (nextExtent * 0.125) / 0.16 / 0.25 : stepped;
-                newPlayerSize = stepped + Math.max(0, fitted - stepped) * 0.5;
+                newPlayerSize = prev.playerSize * currentLevel.growth;
                 console.log('roomba upgraded', newPlayerSize);
 
                 playRandomSound([
@@ -841,52 +818,60 @@ const Game: React.FC<{ level: LevelDoc; onExit: (report?: PlayReport) => void; m
             });
 
             player.position.y = 0.1 * player.scale.y;
-
-        collectedObjectsContainer.children.forEach((child: THREE.Object3D) => {
-	  if (child.userData.size < playerSizeRef.current * 0.08) {
-	    collectedObjectsContainer.remove(child);
-	    return;
-	  }
-	
-	  const initialPos = child.userData.initialPosition;
-	  if (!initialPos) return;
-	  const currentRadius = player.scale.x * 0.5;
-	  const movementAngle = Math.atan2(playerVelocity.x, playerVelocity.z);
-	  const rotationSpeed = playerVelocity.length() * 2;
-	  const rotatedTheta = initialPos.theta + movementAngle * rotationSpeed;
-	
-	  child.position.set(
-	    currentRadius * Math.sin(initialPos.phi) * Math.cos(rotatedTheta),
-	    currentRadius * Math.sin(initialPos.phi) * Math.sin(rotatedTheta),
-	    currentRadius * Math.cos(initialPos.phi)
-	  );
-	});
-
-
-
-            cameraOffset.z = Math.max(2.5, player.scale.x * 3);
-          } else {
-            // Bounce off larger objects
-            collisionOccurred = true;
-            const pushDirection = nextPosition
-              .clone()
-              .sub(object.position)
-              .normalize();
-            playerVelocity.reflect(pushDirection).multiplyScalar(bounceForce);
           }
         }
-      }
-    });
-
-    // Update player position
-    if (!collisionOccurred) {
-      player.position.copy(nextPosition);
-    } else {
-      player.position.add(playerVelocity);
     }
+
+    // Anything too big to pick up is solid. Push fully outside it.
+    // Reflecting while already overlapping pinned the roomba inside.
+    for (let pass = 0; pass < 4; pass++) {
+      let separated = false;
+      for (let index = 0; index < objects.length; index++) {
+        const object = objects[index];
+        if (object.parent !== scene) continue;
+        const size = object.userData.size as number;
+        if (size <= canPick) continue;
+        const combinedRadius = player.scale.x * 0.5 + (object.userData.radius ?? size / 2) + 0.04;
+        const dx = nextPosition.x - object.position.x;
+        const dz = nextPosition.z - object.position.z;
+        const distSq = dx * dx + dz * dz;
+        if (distSq >= combinedRadius * combinedRadius) continue;
+        const dist = Math.sqrt(distSq);
+        if (dist > 0.0001) push.set(dx / dist, 0, dz / dist);
+        else if (playerVelocity.lengthSq() > 0.0001) push.set(playerVelocity.x, 0, playerVelocity.z).normalize();
+        else push.set(1, 0, 0);
+        nextPosition.x = object.position.x + push.x * combinedRadius;
+        nextPosition.z = object.position.z + push.z * combinedRadius;
+        const inward = -(playerVelocity.x * push.x + playerVelocity.z * push.z);
+        if (inward > 0) {
+          playerVelocity.x += push.x * inward;
+          playerVelocity.z += push.z * inward;
+        }
+        separated = true;
+      }
+      if (!separated) break;
+    }
+
+    nextPosition.x = Math.max(-halfRoomSize, Math.min(halfRoomSize, nextPosition.x));
+    nextPosition.z = Math.max(-halfRoomSize, Math.min(halfRoomSize, nextPosition.z));
+    player.position.copy(nextPosition);
 
     // Ensure player stays above ground
     player.position.y = Math.max(player.scale.y * 0.5, player.position.y);
+
+    if (playerSizeRef.current !== placedSize) {
+      placedSize = playerSizeRef.current;
+      const kids = collectedObjectsContainer.children;
+      for (let clingIndex = kids.length - 1; clingIndex >= 0; clingIndex--) {
+        const child = kids[clingIndex];
+        if ((child.userData.size as number) < placedSize * 0.08) {
+          collectedObjectsContainer.remove(child);
+          continue;
+        }
+        placeCling(child);
+      }
+      burdenKey = -1;
+    }
 
     const step = Math.hypot(playerVelocity.x, playerVelocity.z);
     driveDistance += step;
@@ -899,6 +884,7 @@ const Game: React.FC<{ level: LevelDoc; onExit: (report?: PlayReport) => void; m
     };
     if (elapsedSecondsNow !== shownSecond) {
       shownSecond = elapsedSecondsNow;
+      setGameState((prev) => ({ ...prev, timeElapsed: elapsedSecondsNow }));
       setMeter(reportRef.current);
     }
     if (battery.enabled && battery.charge > 0 && remaining > 0 && !finishedRef.current) {
@@ -914,58 +900,90 @@ const Game: React.FC<{ level: LevelDoc; onExit: (report?: PlayReport) => void; m
       }
     }
 
-    // Same camera as before, with about half the pull toward the objects
-    // and half the rise. The room box is still the farthest it may go.
-    const zoomFactor = currentLevel.zoom ?? 2.6;
-    const pickupLimit = Math.max(playerSizeRef.current * 1.2, smallestObject.userData.size);
-    let focusExtent = player.scale.x;
-    objects.forEach((candidate) => {
-      if (candidate.parent !== scene) return;
-      if (candidate.userData.size > pickupLimit) return;
-      const extent = candidate.userData.extent as number;
-      if (extent > focusExtent) focusExtent = extent;
-    });
+    // Travel is opposite playerDirection. Aim ahead of the roomba so it
+    // stays in the lower middle, and sit 20% further back than the level zoom.
+    const zoomFactor = (currentLevel.zoom ?? 3.3) * 1.2;
     const playerZoom = player.scale.x * zoomFactor;
     const objectZoom = focusExtent * zoomFactor;
     const blend = currentLevel.zoomStep;
-    const targetZoom = THREE.MathUtils.clamp(
+    const styledZoom = THREE.MathUtils.clamp(
       playerZoom + Math.max(0, objectZoom - playerZoom) * blend,
       minZoom,
       maxZoom
     );
-
-    currentZoom = THREE.MathUtils.lerp(currentZoom, targetZoom, 0.08);
-
     const growthRaw = Math.log2(Math.max(focusExtent, 0.16) / 0.16) / Math.log2(5);
     const growthT = Math.min(1, Math.max(0, (growthRaw - 0.1) / 0.9));
-    const growth = growthT * growthT * (3 - 2 * growthT);
-    const behindPitch = 0.42;
-    const abovePitch = 1.05;
-    const targetPitch = behindPitch + (abovePitch - behindPitch) * growth * currentLevel.pitch;
-    cameraPitch = THREE.MathUtils.lerp(cameraPitch, targetPitch, 0.04);
-    cameraOffset.z = Math.cos(cameraPitch) * currentZoom;
-    cameraOffset.y = Math.sin(cameraPitch) * currentZoom;
+    const growthBlend = growthT * growthT * (3 - 2 * growthT);
+    const styledPitch = 0.42 + (1.05 - 0.42) * growthBlend * currentLevel.pitch;
+    currentZoom = THREE.MathUtils.lerp(currentZoom, styledZoom, 0.1);
+    cameraPitch = THREE.MathUtils.lerp(cameraPitch, styledPitch, 0.06);
 
-    const idealOffset = cameraOffset
-      .clone()
-      .applyAxisAngle(
-        new THREE.Vector3(0, 1, 0),
-        Math.atan2(playerDirection.x, playerDirection.z)
-      );
     const halfRoom = roomSize / 2 - 0.45;
+    const roomLimit = roomSize / 2 - 0.4;
+    const yaw = Math.atan2(playerDirection.x, playerDirection.z);
+    const forwardX = -playerDirection.x;
+    const forwardZ = -playerDirection.z;
+    const rightX = forwardZ;
+    const rightZ = -forwardX;
+    let lookAhead = Math.max(currentZoom * 0.25, 0.3);
+    let lookSide = 0;
+    const targetNdcY = -0.4;
     let fit = 1;
     const fitAxis = (origin: number, delta: number, min: number, max: number) => {
       if (Math.abs(delta) < 0.0001) return;
       const limit = delta > 0 ? (max - origin) / delta : (min - origin) / delta;
       if (limit < fit) fit = Math.max(0.05, limit);
     };
-    fitAxis(player.position.x, idealOffset.x, -halfRoom, halfRoom);
-    fitAxis(player.position.z, idealOffset.z, -halfRoom, halfRoom);
-    fitAxis(player.position.y, idealOffset.y, 0.35, 19.55);
-    idealOffset.multiplyScalar(fit);
-    camera.position.lerp(player.position.clone().add(idealOffset), 0.1);
-    const lookAhead = playerDirection.clone().multiplyScalar(Math.max(player.scale.x, focusExtent) * 0.25);
-    camera.lookAt(player.position.clone().add(lookAhead));
+    const pose = () => {
+      cameraOffset.set(0, Math.sin(cameraPitch) * currentZoom + Math.sin(time * 2.7) * tilt, Math.cos(cameraPitch) * currentZoom);
+      idealOffset.copy(cameraOffset).applyAxisAngle(camUp, yaw);
+      fit = 1;
+      fitAxis(player.position.x, idealOffset.x, -halfRoom, halfRoom);
+      fitAxis(player.position.z, idealOffset.z, -halfRoom, halfRoom);
+      fitAxis(player.position.y, idealOffset.y, 0.35, 19.55);
+      idealOffset.multiplyScalar(fit);
+      framedPos.copy(player.position).add(idealOffset);
+      lookTarget.copy(player.position);
+      lookTarget.x += forwardX * lookAhead + rightX * lookSide;
+      lookTarget.z += forwardZ * lookAhead + rightZ * lookSide;
+      camera.position.copy(framedPos);
+      camera.lookAt(lookTarget);
+      camera.updateMatrixWorld();
+    };
+
+    heldCam.copy(camera.position);
+    let correcting = false;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      pose();
+      const lead = Math.max(player.scale.x * 2.8, 0.7);
+      aheadPoint.set(
+        Math.max(-roomLimit, Math.min(roomLimit, player.position.x + forwardX * lead)),
+        player.position.y,
+        Math.max(-roomLimit, Math.min(roomLimit, player.position.z + forwardZ * lead))
+      );
+      ndc.copy(aheadPoint).project(camera);
+      const aheadOff = ndc.z < -1 || ndc.z > 1 ? 1 : Math.max(Math.abs(ndc.x) - 0.86, Math.abs(ndc.y) - 0.86, 0);
+      if (aheadOff <= 0.02 || fit < 0.9) break;
+      correcting = true;
+      currentZoom = Math.min(maxZoom, currentZoom * (1 + Math.min(0.35, 0.1 + aheadOff * 0.45)));
+    }
+    for (let attempt = 0; attempt < 5; attempt++) {
+      pose();
+      ndc.copy(player.position).project(camera);
+      if (ndc.z < -1 || ndc.z > 1) {
+        correcting = true;
+        currentZoom = Math.min(maxZoom, currentZoom * 1.15);
+        continue;
+      }
+      const yErr = ndc.y - targetNdcY;
+      const xErr = ndc.x;
+      if (Math.abs(yErr) < 0.03 && Math.abs(xErr) < 0.03) break;
+      correcting = true;
+      lookAhead = Math.max(0, lookAhead + yErr * currentZoom * 0.55);
+      lookSide += xErr * currentZoom * 0.45;
+    }
+    camera.position.copy(heldCam).lerp(framedPos, correcting ? 0.45 : 0.12);
+    camera.lookAt(lookTarget);
 
     netRef.current?.broadcast({
       position: [player.position.x, player.position.y, player.position.z],

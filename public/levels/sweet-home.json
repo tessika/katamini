@@ -22,9 +22,9 @@
     ],
     "minZoom": 1,
     "maxZoom": 150,
-    "zoom": 2.6,
-    "growth": 1.55,
-    "zoomStep": 0.18,
+    "zoom": 3.3,
+    "growth": 1.8,
+    "zoomStep": 0.28,
     "pitch": 0.5
   },
   "rules": {
@@ -34,28 +34,33 @@
     "tiers": [
       {
         "minCm": 0,
-        "maxCm": 2,
-        "requiredCount": 10
+        "maxCm": 1.5,
+        "requiredCount": 40
       },
       {
-        "minCm": 2,
-        "maxCm": 5,
-        "requiredCount": 10
+        "minCm": 1.6,
+        "maxCm": 2.5,
+        "requiredCount": 40
       },
       {
-        "minCm": 5,
-        "maxCm": 10,
-        "requiredCount": 10
+        "minCm": 2.6,
+        "maxCm": 4.5,
+        "requiredCount": 40
+      },
+      {
+        "minCm": 4.6,
+        "maxCm": 9.9,
+        "requiredCount": 36
       },
       {
         "minCm": 10,
-        "maxCm": 20,
-        "requiredCount": 10
+        "maxCm": 19,
+        "requiredCount": 12
       },
       {
         "minCm": 20,
         "maxCm": 1000,
-        "requiredCount": 1
+        "requiredCount": 4
       }
     ]
   },

@@ -210,26 +210,30 @@ const StartMenu: React.FC<StartMenuProps> = ({ levels, onSelectLevel, onEdit }) 
       onSelectRef.current(level.id);
     };
 
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "ArrowUp" || event.key === "ArrowDown" || event.key === "Backspace") {
-        event.preventDefault();
-        return;
-      }
-      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight" && event.key !== "Enter" && event.key !== " ") {
-        return;
-      }
+      const key = event.key;
+      const code = event.code;
+      const left = key === "ArrowLeft" || code === "ArrowLeft";
+      const right = key === "ArrowRight" || code === "ArrowRight";
+      const start = key === "Enter" || key === " " || code === "Enter" || code === "NumpadEnter" || code === "Space";
+      const swallow = key === "ArrowUp" || key === "ArrowDown" || key === "Backspace" || code === "ArrowUp" || code === "ArrowDown" || code === "Backspace";
+      if (!left && !right && !start && !swallow) return;
       event.preventDefault();
-      if (event.repeat && (event.key === "Enter" || event.key === " ")) return;
+      event.stopPropagation();
+      if (swallow) return;
+      if (event.repeat && start) return;
       blip();
-      if (event.key === "ArrowLeft") {
+      if (left) {
         selectedRef.current = (selectedRef.current - 1 + levels.length) % levels.length;
-      } else if (event.key === "ArrowRight") {
+      } else if (right) {
         selectedRef.current = (selectedRef.current + 1) % levels.length;
       } else {
         startSelected();
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown, true);
 
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
@@ -263,7 +267,7 @@ const StartMenu: React.FC<StartMenuProps> = ({ levels, onSelectLevel, onEdit }) 
       cancelAnimationFrame(frame);
       unsubscribeMute();
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener("keydown", handleKeyDown, true);
       window.removeEventListener('resize', handleResize);
       renderer.domElement.removeEventListener("pointerdown", handlePointerDown);
       renderer.dispose();
@@ -306,6 +310,9 @@ const StartMenu: React.FC<StartMenuProps> = ({ levels, onSelectLevel, onEdit }) 
         <p>ESC or BACKSPACE to exit a level</p>
       </div>
       <button
+        type="button"
+        tabIndex={-1}
+        onMouseDown={(event) => event.preventDefault()}
         onClick={(event) => {
           event.preventDefault();
           onEdit();
@@ -314,9 +321,12 @@ const StartMenu: React.FC<StartMenuProps> = ({ levels, onSelectLevel, onEdit }) 
       >
         Edit
       </button>
-      <button 
-        onClick={(e) => {
-          e.preventDefault();
+      <button
+        type="button"
+        tabIndex={-1}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={(event) => {
+          event.preventDefault();
           window.open("https://github.com/katamini", "_blank");
         }}
         className="absolute bottom-4 right-4 w-16 h-16 rounded-full bg-pink-500 hover:bg-pink-600 flex items-center justify-center text-white text-2xl font-bold"

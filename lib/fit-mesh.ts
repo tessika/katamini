@@ -35,6 +35,39 @@ export function placeMesh(mesh: THREE.Object3D, sizeCm: number, nativeExtent: nu
   mesh.position.y -= box.min.y
 }
 
+const cheapMaterials = new WeakMap<THREE.Material, THREE.Material>()
+
+function asLambert(source: THREE.Material): THREE.Material {
+  const cached = cheapMaterials.get(source)
+  if (cached) return cached
+  const colored = source as THREE.MeshStandardMaterial
+  const map = colored.map ?? null
+  const alphaMap = colored.alphaMap ?? null
+  for (const texture of [map, alphaMap]) {
+    if (!texture) continue
+    texture.magFilter = THREE.NearestFilter
+    texture.minFilter = THREE.NearestFilter
+    texture.generateMipmaps = false
+    texture.anisotropy = 1
+    texture.needsUpdate = true
+  }
+  const next = new THREE.MeshLambertMaterial({
+    map,
+    alphaMap,
+    color: colored.color?.clone() ?? new THREE.Color(0xffffff),
+    transparent: source.transparent,
+    opacity: source.opacity,
+    side: source.side,
+    alphaTest: colored.alphaTest ?? 0,
+  })
+  cheapMaterials.set(source, next)
+  return next
+}
+
+function cheapen(material: THREE.Material | THREE.Material[]): THREE.Material | THREE.Material[] {
+  return Array.isArray(material) ? material.map(asLambert) : asLambert(material)
+}
+
 export function createPrimitive(name: string, color = "#ffcc66"): THREE.Mesh {
   let geometry: THREE.BufferGeometry
   switch (name) {
@@ -56,7 +89,7 @@ export function createPrimitive(name: string, color = "#ffcc66"): THREE.Mesh {
 
   const mesh = new THREE.Mesh(
     geometry,
-    new THREE.MeshStandardMaterial({ color, roughness: 0.75, metalness: 0.05 })
+    new THREE.MeshLambertMaterial({ color })
   )
   const extent = measureExtent(mesh)
   mesh.updateMatrix()
@@ -64,8 +97,6 @@ export function createPrimitive(name: string, color = "#ffcc66"): THREE.Mesh {
   mesh.scale.set(1, 1, 1)
   mesh.position.set(0, 0, 0)
   mesh.geometry.computeBoundingBox()
-  mesh.castShadow = true
-  mesh.receiveShadow = true
   return mesh
 }
 
@@ -95,19 +126,20 @@ export function wrapProp(
   model.traverse((child) => {
     const mesh = child as THREE.Mesh
     if (!mesh.isMesh) return
-    mesh.castShadow = true
-    mesh.receiveShadow = true
+    mesh.castShadow = false
+    mesh.receiveShadow = false
+    mesh.material = cheapen(mesh.material)
     if (!spawn.color) return
     const material = mesh.material
     if (!Array.isArray(material) && material && "color" in material) {
-      ;(material as THREE.MeshStandardMaterial).color.set(spawn.color)
+      ;(material as THREE.MeshLambertMaterial).color.set(spawn.color)
     }
   })
 
   group.add(model)
   const radius = spawn.meshScale != null ? spawn.sizeCm * 0.05 : pickupRadius(spawn.sizeCm)
   const extent = spawn.meshScale != null ? Math.abs(spawn.meshScale) * nativeExtent : spawn.sizeCm * WORLD_PER_CM
-  const aura = new THREE.Mesh(new THREE.SphereGeometry(radius, 16, 12), auraMaterial)
+  const aura = new THREE.Mesh(new THREE.SphereGeometry(radius, 8, 6), auraMaterial)
   aura.position.y = radius
   aura.visible = false
   group.add(aura)
