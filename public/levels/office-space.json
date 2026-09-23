@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "id": "office-space",
+  "name": "Office Space",
+  "description": "Take on the challenge of cleaning a busy office!",
+  "mode": "p2p",
+  "room": {
+    "sizeCm": 50,
+    "floor": "textures/floor_parquet.jpg",
+    "wall": "textures/wall_shoji.png",
+    "floorRepeat": [
+      20,
+      20
+    ],
+    "wallRepeat": [
+      2.5,
+      1
+    ],
+    "music": [
+      "music/katamini_03.mp3",
+      "music/katamini_04.mp3"
+    ],
+    "minZoom": 2.5,
+    "maxZoom": 150,
+    "zoom": 2.6,
+    "growth": 1.55,
+    "zoomStep": 0.18,
+    "pitch": 0.5
+  },
+  "rules": {
+    "maxTime": 240,
+    "handling": { "wobble": 1, "drag": 1 },
+    "battery": { "enabled": false, "charge": 100, "moveDrain": 0.08, "idleDrain": 0.04 },
+    "tiers": [
+      {
+        "minCm": 0,
+        "maxCm": 3,
+        "requiredCount": 12
+      },
+      {
+        "minCm": 3,
+        "maxCm": 7,
+        "requiredCount": 12
+      },
+      {
+        "minCm": 7,
+        "maxCm": 15,
+        "requiredCount": 8
+      },
+      {
+        "minCm": 15,
+        "maxCm": 25,
+        "requiredCount": 5
+      }
+    ]
+  },
+  "p2p": {
+    "roomId": "katamini-office-space",
+    "maxPlayers": 4,
+    "sync": [
+      "ghost",
+      "pickups"
+    ]
+  },
+  "assets": [
+    {
+      "id": "pencil",
+      "kind": "builtin",
+      "src": "models/pencil.glb",
+      "nativeExtent": 0.5974,
+      "name": "pencil"
+    }
+  ],
+  "props": [
+    {
+      "id": "of-pencil",
+      "assetId": "pencil",
+      "sizeCm": 0.3,
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "yaw": 0,
+      "placement": "cluster",
+      "cluster": {
+        "count": 20,
+        "radiusCm": 0.17,
+        "seed": 3863622934
+      },
+      "sound": "music/blips/01.mp3",
+      "color": "#FFD700",
+      "meshScale": 1
+    }
+  ]
+}

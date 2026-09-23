@@ -1,0 +1,17 @@
+[
+  {
+    "id": "sweet-home",
+    "name": "Sweet Home",
+    "file": "levels/sweet-home.json"
+  },
+  {
+    "id": "office-space",
+    "name": "Office Space",
+    "file": "levels/office-space.json"
+  },
+  {
+    "id": "gold-rush",
+    "name": "Gold Rush",
+    "file": "levels/gold-rush.json"
+  }
+]

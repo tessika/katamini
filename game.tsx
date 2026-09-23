@@ -2,16 +2,22 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { SizeIndicator } from "./components/size-indicator";
 import { auraVertexShader, auraFragmentShader } from "./shaders/aura";
-import type { GameObject, GameState } from "./types/game";
-import { levels, getCurrentLevel, distributeObjects } from "./levels";
-import StartMenu from "./StartMenu";
+import type { GameState } from "./types/game";
+import type { LevelDoc } from "./lib/level-doc";
+import { toPlayLevel, type PlayReport } from "./lib/level-doc";
+import { MusicControls } from "./components/music-controls";
+import { musicMuted, subscribeMusicMuted } from "./lib/music-pref";
+import { createPrimitive, wrapProp } from "./lib/fit-mesh";
+import { fileObjectUrl } from "./lib/level-store";
+import type { MultiplayerManager } from "./multiplayer/manager";
 
-const Game: React.FC = () => {
+const Game: React.FC<{ level: LevelDoc; onExit: (report?: PlayReport) => void; measure?: boolean }> = ({ level, onExit, measure = false }) => {
   const mountRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const skipMusicRef = useRef<() => void>(() => {});
   const blipSoundRef = useRef<HTMLAudioElement | null>(null);
   const playerRef = useRef<THREE.Mesh | null>(null);
   const collectedObjectsRef = useRef<THREE.Group | null>(null);
@@ -32,15 +38,30 @@ const Game: React.FC = () => {
     isDragging: false
   });
 
-  const [currentLevelId, setCurrentLevelId] = useState<string | null>(null);
   const [gameState, setGameState] = useState<GameState>({
     playerSize: 0.5,
     collectedObjects: [],
     timeElapsed: 0,
     currentClass: 0,
+    currentLevel: level.id,
+    levelProgress: {},
   });
+  const playerSizeRef = useRef(0.5);
+  const onExitRef = useRef(onExit);
+  onExitRef.current = onExit;
+  playerSizeRef.current = gameState.playerSize;
+  const [peerCount, setPeerCount] = useState(0);
+  const netRef = useRef<MultiplayerManager | null>(null);
   const [userInteracted, setUserInteracted] = useState(false);
   const [gameOver, setGameOver] = useState(false);
+  const [drained, setDrained] = useState(false);
+  const [batteryPercent, setBatteryPercent] = useState<number | null>(level.rules.battery?.enabled ? 100 : null);
+  const [meter, setMeter] = useState({ seconds: 0, distance: 0, chargeSpent: 0 });
+  const reportRef = useRef<PlayReport>({ seconds: 0, distance: 0, chargeSpent: 0 });
+  const leave = () => {
+    finishedRef.current = true;
+    onExitRef.current(reportRef.current);
+  };
   const [isMobileDevice, setIsMobileDevice] = useState(false);
 
   const detectMobileDevice = () => {
@@ -68,20 +89,26 @@ const Game: React.FC = () => {
 
   useEffect(() => {
     // handle controls on game over screen
-    if (gameOver) {
+    if (gameOver || drained) {
+      let armed = false;
+      const arm = () => {
+        armed = true;
+      };
       const handleKeyPress = (event: KeyboardEvent) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          finishedRef.current = true;
-          setGameOver(true);
-          setCurrentLevelId(null); // Exit to menu
+        if (!armed) return;
+        if (event.key === 'Enter' || event.key === ' ' || event.key === 'Escape' || event.key === 'Backspace') {
+          event.preventDefault();
+          leave();
         }
       };
+      window.addEventListener('keyup', arm);
       window.addEventListener('keydown', handleKeyPress);
       return () => {
+        window.removeEventListener('keyup', arm);
         window.removeEventListener('keydown', handleKeyPress);
       };
     }
-  }, [gameOver]);   
+  }, [gameOver, drained]);   
 
   const handleTouchStart = (event: React.TouchEvent) => {
     const touch = event.touches[0];
@@ -153,13 +180,11 @@ const Game: React.FC = () => {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       keysRef.current[event.code] = true;
-      if (event.code === "Space") {
+      if (event.code === "Space" || event.code === "Backspace") {
         event.preventDefault();
       }
-       if (event.code === "Escape") {
-	finishedRef.current = true;
-        setGameOver(true);
-        setCurrentLevelId(null); // Exit to menu
+      if (event.code === "Escape" || event.code === "Backspace") {
+        leave();
       }
     };
 
@@ -183,7 +208,7 @@ const Game: React.FC = () => {
       playerRef.current.children.forEach(child => {
         if (child instanceof THREE.Group && child === collectedObjectsRef.current) {
           // Counter-scale the collected objects container
-          child.scale.setScalar(1 / (gameState.playerSize * 0.25));
+          child.scale.setScalar(1 / Math.max(gameState.playerSize * 0.25, 0.05));
         } else {
           // Scale roomba parts (top disc and sensor)
           child.scale.setScalar(1);
@@ -236,16 +261,25 @@ const Game: React.FC = () => {
 	    }
 	  };
 
-	  if (currentLevelId && userInteracted) {
-	    const currentLevel = getCurrentLevel(currentLevelId);
-	    const randomBackgroundMusic = currentLevel.backgroundMusic[Math.floor(Math.random() * currentLevel.backgroundMusic.length)];
-	    audio = new Audio(randomBackgroundMusic);
+	  const startTrack = () => {
+	    if (!userInteracted || level.room.music.length === 0) return;
+	    audio?.pause();
+	    const track = level.room.music[Math.floor(Math.random() * level.room.music.length)];
+	    audio = new Audio(track);
 	    audio.loop = true;
 	    audio.volume = 0.4;
+	    audio.muted = musicMuted();
 	    audioRef.current = audio;
-
 	    playAudio();
-	  }
+	  };
+
+	  startTrack();
+	  skipMusicRef.current = startTrack;
+	  const unsubscribeMute = subscribeMusicMuted(() => {
+	    if (!audio) return;
+	    audio.muted = musicMuted();
+	    if (!audio.muted) playAudio();
+	  });
 
 	  const handleVisibilityChange = () => {
 	    if (document.visibilityState === "visible" && userInteracted) {
@@ -260,23 +294,27 @@ const Game: React.FC = () => {
 	  document.addEventListener("visibilitychange", handleVisibilityChange);
 
 	  return () => {
+	    unsubscribeMute();
 	    document.removeEventListener("visibilitychange", handleVisibilityChange);
 	    stopAudio();
+	    if (audioRef.current === audio) audioRef.current = null;
 	  };
-  }, [currentLevelId, userInteracted]);
+  }, [level, userInteracted]);
 
 
 
   // Main game setup and loop
   useEffect(() => {
-    if (!mountRef.current || !currentLevelId) return;
+    if (!mountRef.current) return;
 
-    const currentLevel = getCurrentLevel(currentLevelId);
+    const currentLevel = toPlayLevel(level);
     const sizeTiers = currentLevel.sizeTiers;
+    let disposed = false;
+    finishedRef.current = false;
 
     // Scene setup
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color("#E0E0E0");
+    scene.background = new THREE.Color(currentLevel.ambientColor || "#E0E0E0");
     const camera = new THREE.PerspectiveCamera(
       75,
       window.innerWidth / window.innerHeight,
@@ -415,7 +453,7 @@ const Game: React.FC = () => {
     sensorBump.position.set(0, 0.15, 0.3);
     player.add(sensorBump);
 
-    player.scale.setScalar(0.25);
+    player.scale.setScalar(playerSizeRef.current * 0.25);
     player.position.y = 0.1 * player.scale.y;
     player.castShadow = true;
     player.receiveShadow = true;
@@ -439,84 +477,82 @@ const Game: React.FC = () => {
     // Load game objects
     const objects: THREE.Object3D[] = [];
     const auras: THREE.Mesh[] = [];
-    let totalObjects = objects.length;
+    const expectedSpawns = currentLevel.spawns.length;
+    let spawned = 0;
+    let remaining = expectedSpawns;
 
-    distributeObjects(currentLevel.gameObjects).forEach((obj) => {
-      loader.load(
-        obj.model,
-        (gltf) => {
-          const model = gltf.scene;
-          model.position.set(...obj.position);
-          model.rotation.set(...obj.rotation);
-          if (obj.round) {
-            model.rotation.set(
-              obj.rotation[0],
-              obj.rotation[1] + Math.random() * Math.PI,
-              obj.rotation[2] + Math.random() * Math.PI
-            );
-            model.position.y = 0.05;
-          } else {
-            model.rotation.set(0, obj.rotation[2] + Math.random() * Math.PI, 0);
-            model.position.y = 0.05;
-          }
-          model.scale.setScalar(obj.scale);
-          model.userData.size = obj.size;
+    const addSpawn = (model: THREE.Object3D, spawn: (typeof currentLevel.spawns)[number], nativeExtent: number) => {
+      if (disposed) return;
+      const group = wrapProp(model, spawn, nativeExtent, auraMaterial.clone());
+      scene.add(group);
+      objects.push(group);
+      auras.push(group.userData.aura as THREE.Mesh);
+      spawned++;
+    };
 
-          model.traverse((child) => {
-            if ((child as THREE.Mesh).isMesh) {
-              (child as THREE.Mesh).castShadow = true;
-              (child as THREE.Mesh).receiveShadow = true;
-	      if (obj.color){ 
-		(child as THREE.Mesh).material.color.set(obj.color) 
-              }
-            }
-          });
-          scene.add(model);
-          objects.push(model);
-
-          // Create aura
-          const auraGeometry = new THREE.SphereGeometry(obj.size * 0.15, 32, 32);
-          const auraMesh = new THREE.Mesh(auraGeometry, auraMaterial.clone());
-          auraMesh.scale.multiplyScalar(1.2);
-          auraMesh.visible = false;
-          model.add(auraMesh);
-          auras.push(auraMesh);
-        },
-        undefined,
-        () => {
-          // Fallback object creation if model loading fails
-          const geometry = new THREE.BoxGeometry(
-            obj.size * 0.1,
-            obj.size * 0.1,
-            obj.size * 0.1
-          );
-          const material = new THREE.MeshStandardMaterial({
-            color: obj.color,
-          });
-          const mesh = new THREE.Mesh(geometry, material);
-          mesh.position.set(...obj.position);
-          mesh.rotation.set(...obj.rotation);
-          mesh.scale.setScalar(obj.scale);
-          mesh.castShadow = true;
-          mesh.receiveShadow = true;
-          mesh.userData.size = obj.size;
-          mesh.position.y = obj.size * 0.005;
-          if (obj.color) {
-            mesh.material.color.set(obj.color);
-          }
-          scene.add(mesh);
-          objects.push(mesh);
-
-          // Create aura for fallback object
-          const auraGeometry = new THREE.SphereGeometry(obj.size * 0.15, 32, 32);
-          const auraMesh = new THREE.Mesh(auraGeometry, auraMaterial.clone());
-          auraMesh.scale.multiplyScalar(1.2);
-          auraMesh.visible = false;
-          mesh.add(auraMesh);
-          auras.push(auraMesh);
-        }
-      );
+    currentLevel.spawns.forEach((spawn) => {
+      const asset = currentLevel.assets.find((item) => item.id === spawn.assetId);
+      const fallback = () => addSpawn(createPrimitive("box", spawn.color || "#cccccc"), spawn, 1);
+      if (!asset || asset.kind === "primitive") {
+        addSpawn(createPrimitive(asset?.src || "box", spawn.color || "#ffcc66"), spawn, asset?.nativeExtent || 1);
+        return;
+      }
+      const beginLoad = (url: string) => {
+        loader.load(url, (gltf) => addSpawn(gltf.scene, spawn, asset.nativeExtent), undefined, fallback);
+      };
+      if (asset.kind === "file") {
+        fileObjectUrl(asset.src).then(beginLoad).catch(fallback);
+        return;
+      }
+      beginLoad(asset.src);
     });
+
+    const syncGhost = currentLevel.mode === "p2p" && currentLevel.p2p?.sync.includes("ghost");
+    const syncPickups = Boolean(currentLevel.p2p?.sync.includes("pickups"));
+    const removeProp = (propId: string) => {
+      const index = objects.findIndex((object) => object.userData.propId === propId && object.parent === scene);
+      if (index < 0) return;
+      scene.remove(objects[index]);
+      const aura = auras[index];
+      if (aura) {
+        aura.visible = false;
+        aura.parent?.remove(aura);
+      }
+    };
+    if (syncGhost && currentLevel.p2p) {
+      const session = currentLevel.p2p;
+      import("./multiplayer/manager")
+        .then(({ connectLevelRoom }) => {
+          if (disposed) return;
+          return connectLevelRoom(
+            {
+              roomId: session.roomId,
+              maxPlayers: session.maxPlayers,
+              syncPickups,
+            },
+            scene,
+            {
+              onPickup: (propId) => {
+                if (syncPickups) removeProp(propId);
+              },
+              onPeers: (count) => {
+                if (!disposed) setPeerCount(count);
+              },
+            }
+          );
+        })
+        .then((net) => {
+          if (!net) return;
+          if (disposed) {
+            net.cleanup();
+            return;
+          }
+          netRef.current = net;
+        })
+        .catch((error) => {
+          console.log("P2P room failed:", error);
+        });
+    }
 
     // Player movement properties
     const playerVelocity = new THREE.Vector3();
@@ -532,6 +568,7 @@ const Game: React.FC = () => {
 
     // Camera setup
     const cameraOffset = new THREE.Vector3(0, 2, 2.5);
+    let cameraPitch = 0.42;
     const minZoom = currentLevel.minZoom || 2.5;
     const maxZoom = currentLevel.maxZoom || 150;
     let currentZoom = minZoom;
@@ -540,19 +577,23 @@ const Game: React.FC = () => {
     camera.lookAt(player.position);
 
     let startTime = Date.now();
+    let driveDistance = 0;
+    let chargeSpent = 0;
+    let shownBattery = currentLevel.battery.enabled ? 100 : -1;
+    let shownSecond = -1;
+    const battery = currentLevel.battery;
 
     // Game loop
     let time = 0;
+    let frameId = 0;
     const animate = () => {
-        
+      if (disposed) return;
       time += 0.016;
 
       if (finishedRef.current) {
-        console.log('game over!');
         return;
-      } else {
-        requestAnimationFrame(animate);
       }
+      frameId = requestAnimationFrame(animate);
         
       // Update time elapsed
       if (!finishedRef.current) {
@@ -562,7 +603,7 @@ const Game: React.FC = () => {
       }
 
       // Check if all objects are captured
-      if (totalObjects + objects.length === 0 && totalObjects != 0 && !finishedRef.current) {
+      if (spawned === expectedSpawns && remaining === 0 && !finishedRef.current) {
         console.log("Game Completed!", time, gameState, objects.length);
         finishedRef.current = true;
         audioRef.current?.pause();
@@ -593,13 +634,49 @@ const Game: React.FC = () => {
       if (object.parent === scene) {
         const aura = auras[index];
         if (aura) {
-          aura.material.uniforms.time.value = time;
+          const auraMaterial = aura.material;
+          if (!Array.isArray(auraMaterial) && auraMaterial.uniforms?.time) {
+            auraMaterial.uniforms.time.value = time;
+          }
           aura.visible =
             object.userData.size <=
-            Math.max(gameState.playerSize * 1.2, smallestObject.userData.size);
+            Math.max(playerSizeRef.current * 1.2, smallestObject.userData.size);
         }
       }
     });
+
+    // Keep the roomba a disc. Overlapping hits used to squash it flatter every frame.
+    player.scale.setScalar(playerSizeRef.current * 0.25);
+
+    // Wobble and drag stay off while the roomba is small. They fade in only
+    // after it has grown and is carrying several objects that are large for it.
+    let carried = 0;
+    let momentX = 0;
+    let momentZ = 0;
+    const playerCm = Math.max(playerSizeRef.current, 0.05);
+    if (playerCm >= 8) {
+      collectedObjectsContainer.children.forEach((child) => {
+        const size = Number(child.userData.size) || 0;
+        const relative = size / playerCm;
+        if (relative < 0.65) return;
+        const weight = relative * relative;
+        carried += weight;
+        momentX += child.position.x * weight;
+        momentZ += child.position.z * weight;
+      });
+    }
+    const carryRadius = Math.max(player.scale.x * 0.5, 0.05);
+    const imbalance = carried > 0
+      ? Math.min(1, Math.hypot(momentX, momentZ) / carried / carryRadius)
+      : 0;
+    const load = THREE.MathUtils.smoothstep(carried, 4, 12);
+    const burden = load * (0.2 + imbalance * 0.25);
+    const wobbleAmount = currentLevel.handling.wobble;
+    const dragAmount = currentLevel.handling.drag;
+    const tilt = load * Math.min(0.14, wobbleAmount * (0.35 + imbalance) * 0.07);
+    player.rotation.x = THREE.MathUtils.lerp(player.rotation.x, Math.cos(time * 2.1) * tilt, 0.15);
+    player.rotation.z = THREE.MathUtils.lerp(player.rotation.z, Math.sin(time * 2.7) * tilt, 0.15);
+    const turnSpeed = rotationSpeed * (1 - Math.min(0.35, burden * dragAmount * 0.25));
 
     // Player movement using keysRef
     const moveDirection = new THREE.Vector3();
@@ -607,14 +684,18 @@ const Game: React.FC = () => {
     if (keysRef.current.ArrowDown) moveDirection.z += 1;
     
     if (keysRef.current.ArrowLeft) {
-      playerDirection.applyAxisAngle(new THREE.Vector3(0, 1, 0), rotationSpeed);
+      playerDirection.applyAxisAngle(new THREE.Vector3(0, 1, 0), turnSpeed);
     }
     if (keysRef.current.ArrowRight) {
-      playerDirection.applyAxisAngle(new THREE.Vector3(0, 1, 0), -rotationSpeed);
+      playerDirection.applyAxisAngle(new THREE.Vector3(0, 1, 0), -turnSpeed);
+    }
+    if (load > 0 && wobbleAmount > 0 && (moveDirection.z !== 0 || keysRef.current.ArrowLeft || keysRef.current.ArrowRight)) {
+      playerDirection.applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.sin(time * 2.4) * tilt * 0.012);
     }
 
-    let dynamicMaxSpeed = maxSpeed * (1 + gameState.playerSize * 0.6);  // Increased scaling factor
-    const dynamicAcceleration = acceleration * (1 + gameState.playerSize * 0.4);  // Add dynamic acceleration
+    const speedScale = 1 / (1 + burden * dragAmount);
+    let dynamicMaxSpeed = maxSpeed * (1 + playerSizeRef.current * 0.6) * speedScale;
+    const dynamicAcceleration = acceleration * (1 + playerSizeRef.current * 0.4) * speedScale;
     playerVelocity.add(
       playerDirection.clone().multiplyScalar(moveDirection.z * dynamicAcceleration)
     );
@@ -649,19 +730,22 @@ const Game: React.FC = () => {
     let collisionOccurred = false;
     objects.forEach((object, index) => {
       if (object.parent === scene) {
-        const distance = nextPosition.distanceTo(object.position);
-        const combinedRadius = player.scale.x * 0.5 + object.userData.size * 0.05;
+        const combinedRadius = player.scale.x * 0.5 + (object.userData.radius ?? object.userData.size / 2);
+        const distance = Math.hypot(nextPosition.x - object.position.x, nextPosition.z - object.position.z);
 
         if (distance < combinedRadius) {
-          if (object.userData.size <= Math.max(gameState.playerSize * 1.2, smallestObject.userData.size)) {
+          if (object.userData.size <= Math.max(playerSizeRef.current * 1.2, smallestObject.userData.size)) {
             // Object collection logic
             scene.remove(object);
+            if (syncPickups && object.userData.propId) {
+              netRef.current?.broadcastPickup(object.userData.propId as string);
+            }
             const aura = auras[index];
             if (aura) {
               aura.visible = false;
               aura.parent?.remove(aura);
             }
-            totalObjects--;
+            remaining--;
 
             // Position on sphere surface
             const u = Math.random();
@@ -692,15 +776,15 @@ const Game: React.FC = () => {
               ).multiplyScalar(player.scale.x)
             );
 
-            const scaleFactor = Math.min(1.2, object.userData.size / gameState.playerSize);
+            const scaleFactor = Math.min(1.2, object.userData.size / playerSizeRef.current);
             object.scale.multiplyScalar(scaleFactor * 0.8);
             collectedObjectsContainer.add(object);  
 
-            if (blipSoundRef.current) {
-              blipSoundRef.current.play().catch((error) => {
-                console.log("Failed to play blip sound:", error);
-              });
-            }
+            const pickupSound = new Audio(object.userData.sound || "music/blips/0" + randoSeed(1, 9) + ".mp3");
+            pickupSound.volume = 0.2;
+            pickupSound.play().catch((error) => {
+              console.log("Failed to play pickup sound:", error);
+            });
 
             // Update game state
             setGameState((prev) => {
@@ -717,7 +801,17 @@ const Game: React.FC = () => {
 
               if (allObjectsInClassCaptured && prev.currentClass < sizeTiers.length - 1) {
                 newClass += 1;
-                newPlayerSize = prev.playerSize * 1.8; // More aggressive growth
+                const nextTier = sizeTiers[newClass];
+                let nextExtent = 0;
+                objects.forEach((candidate) => {
+                  if (candidate.parent !== scene) return;
+                  const size = candidate.userData.size as number;
+                  const extent = candidate.userData.extent as number;
+                  if (size >= nextTier.min && size <= nextTier.max && extent > nextExtent) nextExtent = extent;
+                });
+                const stepped = prev.playerSize * currentLevel.growth;
+                const fitted = nextExtent > 0 ? (nextExtent * 0.125) / 0.16 / 0.25 : stepped;
+                newPlayerSize = stepped + Math.max(0, fitted - stepped) * 0.5;
                 console.log('roomba upgraded', newPlayerSize);
 
                 playRandomSound([
@@ -748,18 +842,14 @@ const Game: React.FC = () => {
 
             player.position.y = 0.1 * player.scale.y;
 
-        // Update collected objects positions
-        let soundEffect; 
-	soundEffect = new Audio("music/blips/0" + randoSeed(1, 9) + ".mp3");
-	soundEffect.volume = 0.2;
-
-	collectedObjectsContainer.children.forEach((child: THREE.Object3D) => {
-	  if (child.userData.size < gameState.playerSize * 0.08) {
+        collectedObjectsContainer.children.forEach((child: THREE.Object3D) => {
+	  if (child.userData.size < playerSizeRef.current * 0.08) {
 	    collectedObjectsContainer.remove(child);
 	    return;
 	  }
 	
 	  const initialPos = child.userData.initialPosition;
+	  if (!initialPos) return;
 	  const currentRadius = player.scale.x * 0.5;
 	  const movementAngle = Math.atan2(playerVelocity.x, playerVelocity.z);
 	  const rotationSpeed = playerVelocity.length() * 2;
@@ -770,15 +860,6 @@ const Game: React.FC = () => {
 	    currentRadius * Math.sin(initialPos.phi) * Math.sin(rotatedTheta),
 	    currentRadius * Math.cos(initialPos.phi)
 	  );
-	
-	  // Play sound effect for the collected object
-	  const currentLevel = getCurrentLevel(currentLevelId);
-	  const collectedObjectSound = currentLevel.gameObjects.find(obj => obj.type === child.userData.type)?.sound;
- 	  if(collectedObjectSound) soundEffect = new Audio(collectedObjectSound);
-	
-	  soundEffect.play().catch((error) => {
-	    console.log("Failed to play sound effect:", error);
-	  });
 	});
 
 
@@ -792,14 +873,6 @@ const Game: React.FC = () => {
               .sub(object.position)
               .normalize();
             playerVelocity.reflect(pushDirection).multiplyScalar(bounceForce);
-
-            // Squish effect
-            player.scale.x *= 0.95;
-            player.scale.z *= 1.05;
-            setTimeout(() => {
-              player.scale.x /= 0.95;
-              player.scale.z /= 1.05;
-            }, 100);
           }
         }
       }
@@ -815,19 +888,63 @@ const Game: React.FC = () => {
     // Ensure player stays above ground
     player.position.y = Math.max(player.scale.y * 0.5, player.position.y);
 
-    // Update camera
-    const zoomFactor = currentLevel.zoom || 4; // Increased zoom factor
+    const step = Math.hypot(playerVelocity.x, playerVelocity.z);
+    driveDistance += step;
+    chargeSpent += battery.idleDrain * 0.016 + step * battery.moveDrain;
+    const elapsedSecondsNow = Math.floor((Date.now() - startTime) / 1000);
+    reportRef.current = {
+      seconds: elapsedSecondsNow,
+      distance: Math.round(driveDistance * 10) / 10,
+      chargeSpent: Math.round(chargeSpent * 10) / 10,
+    };
+    if (elapsedSecondsNow !== shownSecond) {
+      shownSecond = elapsedSecondsNow;
+      setMeter(reportRef.current);
+    }
+    if (battery.enabled && battery.charge > 0 && remaining > 0 && !finishedRef.current) {
+      const percent = Math.max(0, Math.ceil((1 - chargeSpent / battery.charge) * 100));
+      if (percent !== shownBattery) {
+        shownBattery = percent;
+        setBatteryPercent(percent);
+      }
+      if (chargeSpent >= battery.charge) {
+        finishedRef.current = true;
+        setDrained(true);
+        return;
+      }
+    }
+
+    // Same camera as before, with about half the pull toward the objects
+    // and half the rise. The room box is still the farthest it may go.
+    const zoomFactor = currentLevel.zoom ?? 2.6;
+    const pickupLimit = Math.max(playerSizeRef.current * 1.2, smallestObject.userData.size);
+    let focusExtent = player.scale.x;
+    objects.forEach((candidate) => {
+      if (candidate.parent !== scene) return;
+      if (candidate.userData.size > pickupLimit) return;
+      const extent = candidate.userData.extent as number;
+      if (extent > focusExtent) focusExtent = extent;
+    });
+    const playerZoom = player.scale.x * zoomFactor;
+    const objectZoom = focusExtent * zoomFactor;
+    const blend = currentLevel.zoomStep;
     const targetZoom = THREE.MathUtils.clamp(
-      player.scale.x * zoomFactor, 
-      minZoom, 
+      playerZoom + Math.max(0, objectZoom - playerZoom) * blend,
+      minZoom,
       maxZoom
     );
 
-    currentZoom = THREE.MathUtils.lerp(currentZoom, targetZoom, 0.1);
-    cameraOffset.z = currentZoom;
+    currentZoom = THREE.MathUtils.lerp(currentZoom, targetZoom, 0.08);
 
-    // Adjust camera height based on zoom level
-    cameraOffset.y = Math.max(2, currentZoom * 0.3); // Camera height scales with zoom
+    const growthRaw = Math.log2(Math.max(focusExtent, 0.16) / 0.16) / Math.log2(5);
+    const growthT = Math.min(1, Math.max(0, (growthRaw - 0.1) / 0.9));
+    const growth = growthT * growthT * (3 - 2 * growthT);
+    const behindPitch = 0.42;
+    const abovePitch = 1.05;
+    const targetPitch = behindPitch + (abovePitch - behindPitch) * growth * currentLevel.pitch;
+    cameraPitch = THREE.MathUtils.lerp(cameraPitch, targetPitch, 0.04);
+    cameraOffset.z = Math.cos(cameraPitch) * currentZoom;
+    cameraOffset.y = Math.sin(cameraPitch) * currentZoom;
 
     const idealOffset = cameraOffset
       .clone()
@@ -835,8 +952,26 @@ const Game: React.FC = () => {
         new THREE.Vector3(0, 1, 0),
         Math.atan2(playerDirection.x, playerDirection.z)
       );
+    const halfRoom = roomSize / 2 - 0.45;
+    let fit = 1;
+    const fitAxis = (origin: number, delta: number, min: number, max: number) => {
+      if (Math.abs(delta) < 0.0001) return;
+      const limit = delta > 0 ? (max - origin) / delta : (min - origin) / delta;
+      if (limit < fit) fit = Math.max(0.05, limit);
+    };
+    fitAxis(player.position.x, idealOffset.x, -halfRoom, halfRoom);
+    fitAxis(player.position.z, idealOffset.z, -halfRoom, halfRoom);
+    fitAxis(player.position.y, idealOffset.y, 0.35, 19.55);
+    idealOffset.multiplyScalar(fit);
     camera.position.lerp(player.position.clone().add(idealOffset), 0.1);
-    camera.lookAt(player.position);
+    const lookAhead = playerDirection.clone().multiplyScalar(Math.max(player.scale.x, focusExtent) * 0.25);
+    camera.lookAt(player.position.clone().add(lookAhead));
+
+    netRef.current?.broadcast({
+      position: [player.position.x, player.position.y, player.position.z],
+      direction: [playerDirection.x, playerDirection.y, playerDirection.z],
+      size: playerSizeRef.current,
+    });
 
     renderer.render(scene, camera);
   };
@@ -855,14 +990,20 @@ const Game: React.FC = () => {
   window.addEventListener("resize", onWindowResize);
 
   // Start animation
-  if (!finishedRef.current) animate();
+  if (!finishedRef.current) frameId = requestAnimationFrame(animate);
 
   // Cleanup
   return () => {
+    disposed = true;
+    cancelAnimationFrame(frameId);
+    netRef.current?.cleanup();
+    netRef.current = null;
     window.removeEventListener("resize", onWindowResize);
-    mountRef.current?.removeChild(renderer.domElement);
+    if (renderer.domElement.parentElement) {
+      renderer.domElement.parentElement.removeChild(renderer.domElement);
+    }
   };
-}, [currentLevelId]);
+}, [level]);
 
 const touchpadStyles = {
   position: 'fixed' as const,
@@ -889,31 +1030,36 @@ const centerDotStyles = {
   border: '2px solid rgba(255, 255, 255, 1)'
 };
 
-const handleLevelSelect = (levelId: string) => {
-  setCurrentLevelId(levelId);
-  setGameState({
-    playerSize: 0.5,
-    collectedObjects: [],
-    timeElapsed: 0,
-    currentClass: 0,
-  });
-  setGameOver(false);
-  finishedRef.current = false;
-};
-
 return (
   <>
-    {!currentLevelId ? (
-      <StartMenu onSelectLevel={handleLevelSelect} />
-    ) : (
-      <>
-        <div ref={mountRef} />
-        <SizeIndicator size={gameState.playerSize} time={gameState.timeElapsed} />
-        <audio ref={audioRef} />
-        <audio ref={blipSoundRef} />
-        {gameOver && (
-          <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-70">
-            <div className="bg-white p-8 rounded-lg text-center">
+    <div ref={mountRef} />
+    <SizeIndicator size={gameState.playerSize} time={gameState.timeElapsed} battery={batteryPercent} />
+    {measure && (
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 rounded bg-black/75 px-3 py-2 text-sm font-bold text-white">
+        Run {meter.seconds}s · drive {meter.distance.toFixed(1)} · charge {meter.chargeSpent.toFixed(1)}
+      </div>
+    )}
+    <MusicControls onSkip={() => skipMusicRef.current()} />
+    {level.mode === "p2p" && (
+      <div className="fixed top-14 right-4 bg-black/70 text-white font-bold px-3 py-2 rounded">
+        P2P {Math.min(peerCount + 1, level.p2p?.maxPlayers || 4)}/{level.p2p?.maxPlayers || 4}
+      </div>
+    )}
+    <audio ref={audioRef} />
+    <audio ref={blipSoundRef} />
+    {(gameOver || drained) && (
+      <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-70">
+        <div className="bg-white p-8 rounded-lg text-center">
+          {drained ? (
+            <>
+              <h1 className="text-3xl font-bold mb-4">Out of charge</h1>
+              <p className="text-xl mb-2">The roomba stopped before the room was clear.</p>
+              <p className="text-lg">
+                {meter.seconds}s · drive {meter.distance.toFixed(1)} · charge {meter.chargeSpent.toFixed(1)}
+              </p>
+            </>
+          ) : (
+            <>
               <h1 className="text-3xl font-bold mb-4 rainbow_text_animated"><b>Congratulations!</b></h1>
               <p className="text-xl mb-2">You vacuumed all the objects!</p>
               <p className="text-lg">
@@ -924,28 +1070,32 @@ return (
                 Time: {Math.floor(gameState.timeElapsed / 60)}m{" "}
                 {gameState.timeElapsed % 60}s
               </p>
-              <br />
-              <button type="button" onClick={() => setCurrentLevelId(null)}>
-                <span className="rainbow rainbow_text_animated text-lg">RETURN TO MENU</span>
-              </button>
+            </>
+          )}
+          <br />
+          <button type="button" onClick={leave}>
+            <span className="rainbow rainbow_text_animated text-lg">RETURN TO MENU</span>
+          </button>
+          {!drained && (
+            <>
               <br />
               <img src="https://i.imgur.com/n1lfojs.gif" />
-            </div>
-          </div>
-        )}
+            </>
+          )}
+        </div>
+      </div>
+    )}
 
-        {isMobileDevice && (
-          <div 
-            style={touchpadStyles}
-            onTouchStart={handleTouchStart}
-            onTouchMove={handleTouchMove}
-            onTouchEnd={handleTouchEnd}
-            onTouchCancel={handleTouchEnd}
-          >
-            <div style={centerDotStyles} />
-          </div>
-        )}
-      </>
+    {isMobileDevice && (
+      <div
+        style={touchpadStyles}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchEnd}
+      >
+        <div style={centerDotStyles} />
+      </div>
     )}
   </>
 );

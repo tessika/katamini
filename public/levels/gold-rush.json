@@ -1,0 +1,152 @@
+{
+  "version": 1,
+  "id": "gold-rush",
+  "name": "Gold Rush",
+  "description": "Clean up after an outdoor garden party!",
+  "mode": "p2p",
+  "room": {
+    "sizeCm": 6,
+    "floor": "textures/floor_dirt.png",
+    "wall": "textures/wall_stars.mp4",
+    "floorRepeat": [
+      5,
+      5
+    ],
+    "wallRepeat": [
+      10,
+      20
+    ],
+    "music": [
+      "music/katamini_01.mp3",
+      "music/katamini_04.mp3"
+    ],
+    "ambientColor": "#88CCFF",
+    "minZoom": 1,
+    "maxZoom": 10,
+    "zoom": 1,
+    "growth": 1.4,
+    "zoomStep": 0.14,
+    "pitch": 0.4
+  },
+  "rules": {
+    "maxTime": 10,
+    "handling": { "wobble": 1, "drag": 1 },
+    "battery": { "enabled": false, "charge": 100, "moveDrain": 0.08, "idleDrain": 0.04 },
+    "tiers": [
+      {
+        "minCm": 0,
+        "maxCm": 1,
+        "requiredCount": 10
+      },
+      {
+        "minCm": 2,
+        "maxCm": 3,
+        "requiredCount": 10
+      },
+      {
+        "minCm": 3,
+        "maxCm": 4,
+        "requiredCount": 5
+      }
+    ]
+  },
+  "p2p": {
+    "roomId": "katamini-gold-rush",
+    "maxPlayers": 4,
+    "sync": [
+      "ghost",
+      "pickups"
+    ]
+  },
+  "assets": [
+    {
+      "id": "coin",
+      "kind": "builtin",
+      "src": "models/coin.glb",
+      "nativeExtent": 0.4988,
+      "name": "coin"
+    }
+  ],
+  "props": [
+    {
+      "id": "gr-coin-a",
+      "assetId": "coin",
+      "sizeCm": 0.5,
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "yaw": 0,
+      "placement": "cluster",
+      "cluster": {
+        "count": 20,
+        "radiusCm": 0.29,
+        "seed": 991673280
+      },
+      "sound": "music/blips/01.mp3",
+      "color": "#FFD700",
+      "meshScale": 0.1
+    },
+    {
+      "id": "gr-coin-b",
+      "assetId": "coin",
+      "sizeCm": 1,
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "yaw": 0,
+      "placement": "cluster",
+      "cluster": {
+        "count": 20,
+        "radiusCm": 0.6,
+        "seed": 1042006137
+      },
+      "sound": "music/blips/01.mp3",
+      "color": "#FF69B4",
+      "meshScale": 0.2
+    },
+    {
+      "id": "gr-coin-c",
+      "assetId": "coin",
+      "sizeCm": 2,
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "yaw": 0,
+      "placement": "cluster",
+      "cluster": {
+        "count": 20,
+        "radiusCm": 1.24,
+        "seed": 1025228518
+      },
+      "sound": "music/blips/01.mp3",
+      "color": "#00CED1",
+      "meshScale": 0.3
+    },
+    {
+      "id": "gr-coin-d",
+      "assetId": "coin",
+      "sizeCm": 4,
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "yaw": 0,
+      "placement": "cluster",
+      "cluster": {
+        "count": 20,
+        "radiusCm": 2.57,
+        "seed": 1075561375
+      },
+      "sound": "music/blips/01.mp3",
+      "color": "#FF4500",
+      "meshScale": 0.4
+    }
+  ]
+}

@@ -1,0 +1,424 @@
+{
+  "version": 1,
+  "id": "sweet-home",
+  "name": "Sweet Home",
+  "description": "Start your cleaning adventure in a cozy Japanese-style room!",
+  "mode": "solo",
+  "room": {
+    "sizeCm": 40,
+    "floor": "textures/floor_carpet.jpg",
+    "wall": "textures/wall_shoji.png",
+    "floorRepeat": [
+      20,
+      20
+    ],
+    "wallRepeat": [
+      2.5,
+      1
+    ],
+    "music": [
+      "music/katamini_01.mp3",
+      "music/katamini_02.mp3"
+    ],
+    "minZoom": 1,
+    "maxZoom": 150,
+    "zoom": 2.6,
+    "growth": 1.55,
+    "zoomStep": 0.18,
+    "pitch": 0.5
+  },
+  "rules": {
+    "maxTime": 300,
+    "handling": { "wobble": 1, "drag": 1 },
+    "battery": { "enabled": false, "charge": 100, "moveDrain": 0.08, "idleDrain": 0.04 },
+    "tiers": [
+      {
+        "minCm": 0,
+        "maxCm": 2,
+        "requiredCount": 10
+      },
+      {
+        "minCm": 2,
+        "maxCm": 5,
+        "requiredCount": 10
+      },
+      {
+        "minCm": 5,
+        "maxCm": 10,
+        "requiredCount": 10
+      },
+      {
+        "minCm": 10,
+        "maxCm": 20,
+        "requiredCount": 10
+      },
+      {
+        "minCm": 20,
+        "maxCm": 1000,
+        "requiredCount": 1
+      }
+    ]
+  },
+  "assets": [
+    {
+      "id": "box",
+      "kind": "primitive",
+      "src": "box",
+      "nativeExtent": 1,
+      "name": "box"
+    },
+    {
+      "id": "paperclip",
+      "kind": "builtin",
+      "src": "models/paperclip.glb",
+      "nativeExtent": 0.1596,
+      "name": "paperclip"
+    },
+    {
+      "id": "coin",
+      "kind": "builtin",
+      "src": "models/coin.glb",
+      "nativeExtent": 0.4988,
+      "name": "coin"
+    },
+    {
+      "id": "eraser",
+      "kind": "builtin",
+      "src": "models/eraser.glb",
+      "nativeExtent": 1.9564,
+      "name": "eraser"
+    },
+    {
+      "id": "cookie",
+      "kind": "builtin",
+      "src": "models/cookie.glb",
+      "nativeExtent": 0.6848,
+      "name": "cookie"
+    },
+    {
+      "id": "books",
+      "kind": "builtin",
+      "src": "models/books.glb",
+      "nativeExtent": 2.1729,
+      "name": "books"
+    },
+    {
+      "id": "duck",
+      "kind": "builtin",
+      "src": "models/duck.glb",
+      "nativeExtent": 2.2733,
+      "name": "duck"
+    },
+    {
+      "id": "toy-car",
+      "kind": "builtin",
+      "src": "models/toy_car.glb",
+      "nativeExtent": 2.0016,
+      "name": "toy-car"
+    },
+    {
+      "id": "flowerpot",
+      "kind": "builtin",
+      "src": "models/flowerpot.glb",
+      "nativeExtent": 4.9241,
+      "name": "flowerpot"
+    },
+    {
+      "id": "chair",
+      "kind": "builtin",
+      "src": "models/chair.glb",
+      "nativeExtent": 26.5187,
+      "name": "chair"
+    },
+    {
+      "id": "trashcan",
+      "kind": "builtin",
+      "src": "models/trashcan.glb",
+      "nativeExtent": 1.6574,
+      "name": "trashcan"
+    },
+    {
+      "id": "sofa",
+      "kind": "builtin",
+      "src": "models/sofa.glb",
+      "nativeExtent": 32,
+      "name": "sofa"
+    },
+    {
+      "id": "piano",
+      "kind": "builtin",
+      "src": "models/piano.glb",
+      "nativeExtent": 48,
+      "name": "piano"
+    }
+  ],
+  "props": [
+    {
+      "id": "sh-crumb",
+      "assetId": "box",
+      "sizeCm": 0.5,
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "yaw": 0,
+      "placement": "cluster",
+      "cluster": {
+        "count": 20,
+        "radiusCm": 0.29,
+        "seed": 3404785400
+      },
+      "sound": "music/blips/01.mp3",
+      "color": "#A1A1A1",
+      "meshScale": 0.05
+    },
+    {
+      "id": "sh-paperclip",
+      "assetId": "paperclip",
+      "sizeCm": 1,
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "yaw": 0,
+      "placement": "cluster",
+      "cluster": {
+        "count": 20,
+        "radiusCm": 0.6,
+        "seed": 3686089475
+      },
+      "sound": "music/blips/02.mp3",
+      "meshScale": 1
+    },
+    {
+      "id": "sh-coin-a",
+      "assetId": "coin",
+      "sizeCm": 2,
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "yaw": 0,
+      "placement": "cluster",
+      "cluster": {
+        "count": 20,
+        "radiusCm": 1.24,
+        "seed": 3184164402
+      },
+      "sound": "music/blips/03.mp3",
+      "meshScale": 0.3
+    },
+    {
+      "id": "sh-coin-b",
+      "assetId": "coin",
+      "sizeCm": 2,
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "yaw": 0,
+      "placement": "cluster",
+      "cluster": {
+        "count": 20,
+        "radiusCm": 1.24,
+        "seed": 3167386783
+      },
+      "sound": "music/blips/04.mp3",
+      "meshScale": 0.5
+    },
+    {
+      "id": "sh-eraser",
+      "assetId": "eraser",
+      "sizeCm": 3,
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "yaw": 0,
+      "placement": "cluster",
+      "cluster": {
+        "count": 20,
+        "radiusCm": 1.9,
+        "seed": 3443143785
+      },
+      "sound": "music/blips/05.mp3",
+      "meshScale": 0.2
+    },
+    {
+      "id": "sh-cookie",
+      "assetId": "cookie",
+      "sizeCm": 4,
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "yaw": 0,
+      "placement": "cluster",
+      "cluster": {
+        "count": 20,
+        "radiusCm": 2.57,
+        "seed": 1875719995
+      },
+      "sound": "music/blips/06.mp3",
+      "meshScale": 0.7
+    },
+    {
+      "id": "sh-books",
+      "assetId": "books",
+      "sizeCm": 5,
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "yaw": 0,
+      "placement": "cluster",
+      "cluster": {
+        "count": 12,
+        "radiusCm": 3.25,
+        "seed": 2575543181
+      },
+      "sound": "music/blips/08.mp3",
+      "meshScale": 0.25
+    },
+    {
+      "id": "sh-duck",
+      "assetId": "duck",
+      "sizeCm": 7,
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "yaw": 0,
+      "placement": "cluster",
+      "cluster": {
+        "count": 12,
+        "radiusCm": 4.63,
+        "seed": 1901931708
+      },
+      "sound": "music/blips/07.mp3",
+      "meshScale": 0.5
+    },
+    {
+      "id": "sh-car",
+      "assetId": "toy-car",
+      "sizeCm": 8.5,
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "yaw": 0,
+      "placement": "cluster",
+      "cluster": {
+        "count": 12,
+        "radiusCm": 5.68,
+        "seed": 1797373709
+      },
+      "sound": "music/blips/09.mp3",
+      "meshScale": 0.5
+    },
+    {
+      "id": "sh-pot",
+      "assetId": "flowerpot",
+      "sizeCm": 12,
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "yaw": 0,
+      "placement": "cluster",
+      "cluster": {
+        "count": 4,
+        "radiusCm": 8.15,
+        "seed": 3287469464
+      },
+      "sound": "music/blips/10.mp3",
+      "meshScale": 0.3
+    },
+    {
+      "id": "sh-chair",
+      "assetId": "chair",
+      "sizeCm": 13,
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "yaw": 0,
+      "placement": "cluster",
+      "cluster": {
+        "count": 4,
+        "radiusCm": 8.87,
+        "seed": 1751459782
+      },
+      "sound": "music/blips/01.mp3",
+      "meshScale": 0.06
+    },
+    {
+      "id": "sh-trash",
+      "assetId": "trashcan",
+      "sizeCm": 14,
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "yaw": 0,
+      "placement": "cluster",
+      "cluster": {
+        "count": 4,
+        "radiusCm": 9.58,
+        "seed": 3074462057
+      },
+      "sound": "music/blips/02.mp3",
+      "meshScale": 1.1
+    },
+    {
+      "id": "sh-sofa",
+      "assetId": "sofa",
+      "sizeCm": 20,
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "yaw": 0,
+      "placement": "cluster",
+      "cluster": {
+        "count": 2,
+        "radiusCm": 13.94,
+        "seed": 930590570
+      },
+      "sound": "music/blips/03.mp3",
+      "meshScale": 0.1
+    },
+    {
+      "id": "sh-piano",
+      "assetId": "piano",
+      "sizeCm": 25,
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "yaw": 0,
+      "placement": "cluster",
+      "cluster": {
+        "count": 2,
+        "radiusCm": 17.62,
+        "seed": 3556694474
+      },
+      "sound": "music/blips/04.mp3",
+      "meshScale": 0.1
+    }
+  ]
+}
