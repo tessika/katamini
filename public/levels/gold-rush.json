@@ -86,7 +86,7 @@
       },
       "sound": "music/blips/01.mp3",
       "color": "#FFD700",
-      "meshScale": 0.1
+      "meshScale": 0.06
     },
     {
       "id": "gr-coin-b",
@@ -106,7 +106,7 @@
       },
       "sound": "music/blips/01.mp3",
       "color": "#FF69B4",
-      "meshScale": 0.2
+      "meshScale": 0.12
     },
     {
       "id": "gr-coin-c",
@@ -126,7 +126,7 @@
       },
       "sound": "music/blips/01.mp3",
       "color": "#00CED1",
-      "meshScale": 0.3
+      "meshScale": 0.18
     },
     {
       "id": "gr-coin-d",
@@ -146,7 +146,7 @@
       },
       "sound": "music/blips/01.mp3",
       "color": "#FF4500",
-      "meshScale": 0.4
+      "meshScale": 0.24
     }
   ]
 }

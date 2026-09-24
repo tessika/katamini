@@ -391,6 +391,45 @@ const Game: React.FC<{ level: LevelDoc; onExit: (report?: PlayReport) => void; m
      room.position.y = 10;
      scene.add(room);
 
+    const interiorWalls = currentLevel.walls ?? [];
+    if (currentLevel.ceilingTexture) {
+      const ceilingTexture = pixelate(new THREE.TextureLoader().load(currentLevel.ceilingTexture));
+      ceilingTexture.wrapS = THREE.RepeatWrapping;
+      ceilingTexture.wrapT = THREE.RepeatWrapping;
+      const ceilingRepeat = currentLevel.ceilingRepeat ?? [4, 4];
+      ceilingTexture.repeat.set(ceilingRepeat[0], ceilingRepeat[1]);
+      const ceilingMaterial = new THREE.MeshLambertMaterial({ map: ceilingTexture, side: THREE.BackSide });
+      const materials = [
+        roomMaterial, roomMaterial, ceilingMaterial,
+        roomMaterial, roomMaterial, roomMaterial,
+      ];
+      room.material = materials;
+    }
+    const skirtMaterial = new THREE.MeshLambertMaterial({ color: 0x1a120c });
+    const skirtHeight = 0.7;
+    const addSkirt = (x: number, z: number, w: number, d: number) => {
+      const skirt = new THREE.Mesh(new THREE.BoxGeometry(w, skirtHeight, d), skirtMaterial);
+      skirt.position.set(x, skirtHeight / 2, z);
+      scene.add(skirt);
+    };
+    for (const wall of interiorWalls) {
+      const mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(wall.w, 8, wall.d),
+        new THREE.MeshLambertMaterial({ map: wallTexture, side: THREE.DoubleSide })
+      );
+      mesh.position.set(wall.x, 4, wall.z);
+      scene.add(mesh);
+      addSkirt(wall.x, wall.z, wall.w + 0.22, wall.d + 0.22);
+    }
+    if (interiorWalls.length > 0) {
+      const edge = roomSize / 2 - 0.06;
+      const thick = 0.16;
+      addSkirt(0, -edge, roomSize, thick);
+      addSkirt(0, edge, roomSize, thick);
+      addSkirt(-edge, 0, thick, roomSize);
+      addSkirt(edge, 0, thick, roomSize);
+    }
+
 
     // Floor setup
     const floorTexture = pixelate(new THREE.TextureLoader().load(currentLevel.floorTexture || "textures/floor_carpet.jpg"));
@@ -444,6 +483,7 @@ const Game: React.FC<{ level: LevelDoc; onExit: (report?: PlayReport) => void; m
     // Collected objects container
     const collectedObjectsContainer = new THREE.Group();
     collectedObjectsRef.current = collectedObjectsContainer;
+    collectedObjectsContainer.scale.setScalar(1 / Math.max(player.scale.x, 0.05));
     player.add(collectedObjectsContainer);
 
     // Create aura material
@@ -462,6 +502,7 @@ const Game: React.FC<{ level: LevelDoc; onExit: (report?: PlayReport) => void; m
     const expectedSpawns = currentLevel.spawns.length;
     let spawned = 0;
     let remaining = expectedSpawns;
+    let held = 0;
 
     const addSpawn = (model: THREE.Object3D, spawn: (typeof currentLevel.spawns)[number], nativeExtent: number) => {
       if (disposed) return;
@@ -500,6 +541,9 @@ const Game: React.FC<{ level: LevelDoc; onExit: (report?: PlayReport) => void; m
         aura.visible = false;
         aura.parent?.remove(aura);
       }
+      objects.splice(index, 1);
+      auras.splice(index, 1);
+      remaining--;
     };
     if (syncGhost && currentLevel.p2p) {
       const session = currentLevel.p2p;
@@ -651,6 +695,7 @@ const Game: React.FC<{ level: LevelDoc; onExit: (report?: PlayReport) => void; m
 
     // Keep the roomba a disc. Overlapping hits used to squash it flatter every frame.
     player.scale.setScalar(playerSizeRef.current * 0.25);
+    collectedObjectsContainer.scale.setScalar(1 / Math.max(player.scale.x, 0.05));
     noteBurden();
     const wobbleAmount = currentLevel.handling.wobble;
     const dragAmount = currentLevel.handling.drag;
@@ -701,8 +746,39 @@ const Game: React.FC<{ level: LevelDoc; onExit: (report?: PlayReport) => void; m
     // Calculate next position
     nextPosition.copy(player.position).add(playerVelocity);
     const halfRoomSize = (roomSize / 2) - 0.15; // Room size minus bits
+    const shoveWalls = () => {
+      const radius = player.scale.x * 0.5 + 0.08;
+      for (const wall of interiorWalls) {
+        const hx = wall.w / 2;
+        const hz = wall.d / 2;
+        const nearestX = Math.max(wall.x - hx, Math.min(nextPosition.x, wall.x + hx));
+        const nearestZ = Math.max(wall.z - hz, Math.min(nextPosition.z, wall.z + hz));
+        let dx = nextPosition.x - nearestX;
+        let dz = nextPosition.z - nearestZ;
+        const distSq = dx * dx + dz * dz;
+        if (distSq >= radius * radius) continue;
+        if (distSq < 1e-8) {
+          const penX = hx - Math.abs(nextPosition.x - wall.x);
+          const penZ = hz - Math.abs(nextPosition.z - wall.z);
+          if (penX < penZ) {
+            const sign = Math.sign(nextPosition.x - wall.x) || 1;
+            nextPosition.x = wall.x + sign * (hx + radius);
+          } else {
+            const sign = Math.sign(nextPosition.z - wall.z) || 1;
+            nextPosition.z = wall.z + sign * (hz + radius);
+          }
+          continue;
+        }
+        const dist = Math.sqrt(distSq);
+        dx /= dist;
+        dz /= dist;
+        nextPosition.x += dx * (radius - dist);
+        nextPosition.z += dz * (radius - dist);
+      }
+    };
     nextPosition.x = Math.max(-halfRoomSize, Math.min(halfRoomSize, nextPosition.x));
     nextPosition.z = Math.max(-halfRoomSize, Math.min(halfRoomSize, nextPosition.z));
+    shoveWalls();
 
     // One pass: pickup glow and collisions. Collected props leave the list.
     let smallestSize = Infinity;
@@ -752,6 +828,7 @@ const Game: React.FC<{ level: LevelDoc; onExit: (report?: PlayReport) => void; m
               aura.parent?.remove(aura);
             }
             remaining--;
+            held++;
 
             object.userData.cling = {
               theta: Math.random() * Math.PI * 2,
@@ -761,8 +838,7 @@ const Game: React.FC<{ level: LevelDoc; onExit: (report?: PlayReport) => void; m
             };
             const surfacePosition = object.position;
 
-            const scaleFactor = Math.min(1.2, object.userData.size / playerSizeRef.current);
-            object.scale.multiplyScalar(scaleFactor * 0.8);
+            object.scale.multiplyScalar(0.7);
             collectedObjectsContainer.add(object);
             placeCling(object);
             burdenKey = -1;
@@ -856,6 +932,7 @@ const Game: React.FC<{ level: LevelDoc; onExit: (report?: PlayReport) => void; m
 
     nextPosition.x = Math.max(-halfRoomSize, Math.min(halfRoomSize, nextPosition.x));
     nextPosition.z = Math.max(-halfRoomSize, Math.min(halfRoomSize, nextPosition.z));
+    shoveWalls();
     player.position.copy(nextPosition);
 
     // Ensure player stays above ground
@@ -909,7 +986,7 @@ const Game: React.FC<{ level: LevelDoc; onExit: (report?: PlayReport) => void; m
     const objectZoom = focusExtent * zoomFactor;
     const blend = currentLevel.zoomStep;
     const linearZoom = playerZoom + Math.max(0, objectZoom - playerZoom) * blend;
-    const pulled = minZoom + Math.max(0, linearZoom - minZoom) * 2.5;
+    const pulled = minZoom + Math.max(0, linearZoom - minZoom) * 2;
     const roomCap = Math.min(maxZoom, Math.max(minZoom + 1, roomSize * 0.46));
     const easeStart = roomCap * 0.62;
     let styledZoom = pulled;
@@ -996,6 +1073,7 @@ const Game: React.FC<{ level: LevelDoc; onExit: (report?: PlayReport) => void; m
       position: [player.position.x, player.position.y, player.position.z],
       direction: [playerDirection.x, playerDirection.y, playerDirection.z],
       size: playerSizeRef.current,
+      held,
     });
 
     renderer.render(scene, camera);
@@ -1104,7 +1182,7 @@ return (
           {!drained && (
             <>
               <br />
-              <img src="https://i.imgur.com/n1lfojs.gif" />
+              <img src="vacuum-hero.gif" alt="Katamini roomba" className="mx-auto mt-2 max-w-[196px]" />
             </>
           )}
         </div>

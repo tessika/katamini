@@ -13,5 +13,10 @@
     "id": "gold-rush",
     "name": "Gold Rush",
     "file": "levels/gold-rush.json"
+  },
+  {
+    "id": "backrooms",
+    "name": "BACKROOMS",
+    "file": "levels/backrooms.json"
   }
 ]

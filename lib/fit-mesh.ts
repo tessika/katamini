@@ -114,7 +114,7 @@ export function wrapProp(
   auraMaterial: THREE.Material
 ): THREE.Group {
   const group = new THREE.Group()
-  group.position.set(spawn.position[0], 0, spawn.position[2])
+  group.position.set(spawn.position[0], spawn.position[1] || 0, spawn.position[2])
   group.rotation.y = spawn.yaw
   if (spawn.meshScale != null) {
     model.scale.setScalar(spawn.meshScale)

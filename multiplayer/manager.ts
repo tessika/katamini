@@ -7,6 +7,7 @@ export interface PlayerState {
   position: [number, number, number]
   direction: [number, number, number]
   size: number
+  held?: number
 }
 
 export interface LevelSession {
@@ -50,10 +51,7 @@ export class MultiplayerManager {
     }
 
     this.room.onPeerJoin = (peerId) => {
-      if (this.peers.size >= Math.max(1, this.maxPlayers - 1)) return
-      const mesh = createPeerMesh()
-      this.peers.set(peerId, mesh)
-      this.scene.add(mesh)
+      this.welcome(peerId)
       handlers.onPeers(this.peers.size)
     }
     this.room.onPeerLeave = (peerId) => {
@@ -62,7 +60,16 @@ export class MultiplayerManager {
       this.peers.delete(peerId)
       handlers.onPeers(this.peers.size)
     }
-    handlers.onPeers(Object.keys(this.room.getPeers()).length)
+    for (const peerId of Object.keys(this.room.getPeers())) this.welcome(peerId)
+    handlers.onPeers(this.peers.size)
+  }
+
+  private welcome(peerId: string) {
+    if (this.peers.has(peerId)) return
+    if (this.peers.size >= Math.max(1, this.maxPlayers - 1)) return
+    const mesh = createPeerMesh()
+    this.peers.set(peerId, mesh)
+    this.scene.add(mesh)
   }
 
   broadcast(state: PlayerState) {
@@ -87,29 +94,53 @@ export class MultiplayerManager {
   private applyPeer(peerId: string, state: PlayerState) {
     const mesh = this.peers.get(peerId)
     if (!mesh) return
-    mesh.position.lerp(new THREE.Vector3(state.position[0], state.position[1], state.position[2]), 0.35)
+    mesh.position.lerp(new THREE.Vector3(state.position[0], state.position[1], state.position[2]), 0.2)
     const direction = new THREE.Vector3(state.direction[0], state.direction[1], state.direction[2])
     if (direction.lengthSq() > 0.0001) {
       mesh.lookAt(mesh.position.clone().add(direction))
     }
     mesh.scale.setScalar(Math.max(state.size, 0.05) * 0.25)
     mesh.position.y = 0.1 * mesh.scale.y
+    const pile = mesh.getObjectByName("pile")
+    if (pile) {
+      const shown = Math.min(pile.children.length, Math.max(0, state.held ?? 0))
+      pile.children.forEach((dot, index) => {
+        dot.visible = index < shown
+      })
+    }
   }
 }
 
 function createPeerMesh(): THREE.Group {
   const group = new THREE.Group()
   const body = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.5, 0.5, 0.2, 16),
-    new THREE.MeshStandardMaterial({ color: 0x6495ed, roughness: 0.7, metalness: 0.2 })
+    new THREE.CylinderGeometry(0.5, 0.5, 0.2, 10),
+    new THREE.MeshLambertMaterial({ color: 0x6495ed })
   )
   const top = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.45, 0.45, 0.05, 16),
-    new THREE.MeshStandardMaterial({ color: 0x4169e1 })
+    new THREE.CylinderGeometry(0.45, 0.45, 0.05, 10),
+    new THREE.MeshLambertMaterial({ color: 0x4169e1 })
   )
   top.position.y = 0.1
-  body.add(top)
-  group.add(body)
+  const sensor = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.1, 0.1, 0.1, 6),
+    new THREE.MeshLambertMaterial({ color: 0x1e90ff })
+  )
+  sensor.position.set(0, 0.15, 0.3)
+  body.add(top, sensor)
+  const pile = new THREE.Group()
+  pile.name = "pile"
+  for (let index = 0; index < 8; index++) {
+    const dot = new THREE.Mesh(
+      new THREE.SphereGeometry(0.08, 6, 5),
+      new THREE.MeshLambertMaterial({ color: 0xd8d8d8 })
+    )
+    const angle = (index / 8) * Math.PI * 2
+    dot.position.set(Math.cos(angle) * 0.28, 0.28, Math.sin(angle) * 0.28)
+    dot.visible = false
+    pile.add(dot)
+  }
+  group.add(body, pile)
   group.scale.setScalar(0.5)
   return group
 }

@@ -2,7 +2,7 @@ import type { LevelAsset } from "./level-doc"
 
 export const BUILTIN_MODELS: LevelAsset[] = [
   { id: "paperclip", name: "Paperclip", kind: "builtin", src: "models/paperclip.glb", nativeExtent: 0.1596, meshScale: 1, sizeCm: 1 },
-  { id: "coin", name: "Coin", kind: "builtin", src: "models/coin.glb", nativeExtent: 0.4988, meshScale: 0.4, sizeCm: 2 },
+  { id: "coin", name: "Coin", kind: "builtin", src: "models/coin.glb", nativeExtent: 0.4988, meshScale: 0.24, sizeCm: 2 },
   { id: "cookie", name: "Cookie", kind: "builtin", src: "models/cookie.glb", nativeExtent: 0.6848, meshScale: 0.7, sizeCm: 4 },
   { id: "eraser", name: "Eraser", kind: "builtin", src: "models/eraser.glb", nativeExtent: 1.9564, meshScale: 0.2, sizeCm: 3 },
   { id: "pencil", name: "Pencil", kind: "builtin", src: "models/pencil.glb", nativeExtent: 0.5974, meshScale: 0.7, sizeCm: 3 },
@@ -32,12 +32,14 @@ export const FLOORS = [
   "textures/floor_carpet.jpg",
   "textures/floor_parquet.jpg",
   "textures/floor_dirt.png",
+  "textures/backrooms_floor.png",
 ]
 
 export const WALLS = [
   "textures/wall_shoji.png",
   "textures/wall_stars.png",
   "textures/wall_stars.mp4",
+  "textures/backrooms_wall.png",
 ]
 
 export const TRACKS = [
@@ -45,6 +47,7 @@ export const TRACKS = [
   "music/katamini_02.mp3",
   "music/katamini_03.mp3",
   "music/katamini_04.mp3",
+  "music/basement.mp3",
 ]
 
 export function findCatalogAsset(id: string): LevelAsset | undefined {

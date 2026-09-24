@@ -214,7 +214,7 @@
         "seed": 3184164402
       },
       "sound": "music/blips/03.mp3",
-      "meshScale": 0.3
+      "meshScale": 0.18
     },
     {
       "id": "sh-coin-b",
@@ -233,7 +233,7 @@
         "seed": 3167386783
       },
       "sound": "music/blips/04.mp3",
-      "meshScale": 0.5
+      "meshScale": 0.3
     },
     {
       "id": "sh-eraser",

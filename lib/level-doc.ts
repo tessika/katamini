@@ -97,6 +97,10 @@ export interface LevelDoc {
     wall: string
     floorRepeat: [number, number]
     wallRepeat: [number, number]
+    ceiling?: string
+    ceilingRepeat?: [number, number]
+    /** Interior partitions. x/z are the center, w runs along X, d along Z. */
+    walls?: { x: number; z: number; w: number; d: number }[]
     music: string[]
     ambientColor?: string
     minZoom?: number
@@ -145,6 +149,9 @@ export interface PlayLevel {
   roomSize: number
   wallTexture: string
   floorTexture: string
+  ceilingTexture?: string
+  ceilingRepeat?: [number, number]
+  walls: { x: number; z: number; w: number; d: number }[]
   wallRepeat: [number, number]
   floorRepeat: [number, number]
   backgroundMusic: string[]
@@ -319,6 +326,9 @@ export function toPlayLevel(doc: LevelDoc): PlayLevel {
     roomSize: doc.room.sizeCm,
     wallTexture: doc.room.wall,
     floorTexture: doc.room.floor,
+    ceilingTexture: doc.room.ceiling,
+    ceilingRepeat: doc.room.ceilingRepeat,
+    walls: doc.room.walls ?? [],
     wallRepeat: doc.room.wallRepeat,
     floorRepeat: doc.room.floorRepeat,
     backgroundMusic: doc.room.music,
