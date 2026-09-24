@@ -5,9 +5,10 @@ import { motion } from "framer-motion"
 interface SizeIndicatorProps {
   size: number // size in cm
   time: number // time in seconds
+  battery?: number | null
 }
 
-export function SizeIndicator({ size, time }: SizeIndicatorProps) {
+export function SizeIndicator({ size, time, battery }: SizeIndicatorProps) {
   const cm = Math.floor(size)
   const mm = Math.floor((size - cm) * 10)
   
@@ -46,6 +47,21 @@ export function SizeIndicator({ size, time }: SizeIndicatorProps) {
       <div className="bg-white bg-opacity-80 rounded-lg p-2 text-black font-bold">
         <span className="text-xl">{minutes.toString().padStart(2, '0')}:{seconds.toString().padStart(2, '0')}</span>
       </div>
+      {typeof battery === "number" && (
+        <div className="bg-white bg-opacity-80 rounded-lg p-2 text-black font-bold min-w-24">
+          <div className="text-xs uppercase tracking-wide">battery</div>
+          <div className="text-xl">{battery}%</div>
+          <div className="mt-1 h-2 w-full rounded bg-black/10">
+            <div
+              className="h-2 rounded"
+              style={{
+                width: `${Math.max(0, Math.min(100, battery))}%`,
+                background: battery > 30 ? "#16a34a" : battery > 10 ? "#ca8a04" : "#dc2626",
+              }}
+            />
+          </div>
+        </div>
+      )}
     </motion.div>
   )
 }
