@@ -41,6 +41,42 @@ function requestToPromise<T>(request: IDBRequest<T>): Promise<T> {
   })
 }
 
+const LOCAL_KEY = "katamini-levels"
+
+export interface SavedLevel {
+  id: string
+  name: string
+  updatedAt: number
+  doc: LevelDoc
+}
+
+export function listSavedLevels(): SavedLevel[] {
+  if (typeof localStorage === "undefined") return []
+  try {
+    const raw = localStorage.getItem(LOCAL_KEY)
+    const rows = raw ? JSON.parse(raw) as SavedLevel[] : []
+    return rows.sort((a, b) => b.updatedAt - a.updatedAt)
+  } catch {
+    return []
+  }
+}
+
+export function saveLevelLocal(doc: LevelDoc): void {
+  const rows = listSavedLevels().filter((row) => row.id !== doc.id)
+  rows.unshift({ id: doc.id, name: doc.name, updatedAt: Date.now(), doc })
+  localStorage.setItem(LOCAL_KEY, JSON.stringify(rows))
+}
+
+export function loadLevelLocal(id: string): LevelDoc | null {
+  const row = listSavedLevels().find((item) => item.id === id)
+  return row ? parseLevelDoc(row.doc) : null
+}
+
+export function deleteLevelLocal(id: string): void {
+  const rows = listSavedLevels().filter((row) => row.id !== id)
+  localStorage.setItem(LOCAL_KEY, JSON.stringify(rows))
+}
+
 export async function saveDraft(doc: LevelDoc): Promise<void> {
   const db = await openDb()
   const record: DraftRecord = {

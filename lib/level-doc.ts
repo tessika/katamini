@@ -10,6 +10,10 @@ export interface LevelAsset {
   src: string
   nativeExtent: number
   name?: string
+  /** Visual scale shared by every object of this type. */
+  meshScale?: number
+  /** Gameplay size in centimeters, shared by every object of this type. */
+  sizeCm?: number
 }
 
 export interface ClusterSpec {
@@ -101,10 +105,14 @@ export interface LevelDoc {
     growth?: number
     zoomStep?: number
     pitch?: number
+    /** Roomba start. Yaw 0 faces +Z, the game's default forward. */
+    start?: { x: number; z: number; yaw: number }
   }
   rules: {
     maxTime: number
     tiers: SizeTierDoc[]
+    /** Custom levels derive pickup bands from the objects. Built-ins stay manual. */
+    progression?: "auto" | "manual"
     handling?: HandlingDoc
     battery?: BatteryDoc
   }
@@ -153,6 +161,7 @@ export interface PlayLevel {
   sizeTiers: { min: number; max: number; requiredCount: number }[]
   spawns: SpawnedProp[]
   assets: LevelAsset[]
+  start: { x: number; z: number; yaw: number }
 }
 
 export function hashSeed(text: string): number {
@@ -172,6 +181,67 @@ export function mulberry32(seed: number): () => number {
     let t = Math.imul(a ^ (a >>> 15), 1 | a)
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+const SIZE_PER_EXTENT = 8
+const START_PLAYER = 0.5
+
+export function sizeCmForScale(meshScale: number, nativeExtent: number): number {
+  const extent = Math.max(nativeExtent, 0.05)
+  return Math.max(0.2, Number((Math.abs(meshScale) * extent * SIZE_PER_EXTENT).toFixed(2)))
+}
+
+export function scaleForSize(sizeCm: number, nativeExtent: number): number {
+  const extent = Math.max(nativeExtent, 0.05)
+  return Math.max(0.01, Number((sizeCm / (extent * SIZE_PER_EXTENT)).toFixed(3)))
+}
+
+export function withTypeScale(doc: LevelDoc, asset: LevelAsset, meshScale: number): LevelDoc {
+  const scale = Math.max(0.01, meshScale)
+  const sizeCm = sizeCmForScale(scale, asset.nativeExtent)
+  const next: LevelAsset = { ...asset, meshScale: scale, sizeCm }
+  const assets = doc.assets.some((item) => item.id === asset.id)
+    ? doc.assets.map((item) => item.id === asset.id ? { ...item, meshScale: scale, sizeCm } : item)
+    : [...doc.assets, next]
+  return {
+    ...doc,
+    assets,
+    props: doc.props.map((prop) => prop.assetId === asset.id ? { ...prop, meshScale: scale, sizeCm } : prop),
+  }
+}
+
+const MAX_GROWTH = 1.52
+
+export function planProgression(doc: LevelDoc): { growth: number; tiers: SizeTierDoc[] } {
+  const sizes = expandProps(doc).map((spawn) => spawn.sizeCm).filter((size) => size > 0).sort((a, b) => a - b)
+  const preferred = Number.isFinite(doc.room.growth) ? Math.min(MAX_GROWTH, Math.max(1, doc.room.growth!)) : 1.25
+  if (sizes.length === 0) return { growth: preferred, tiers: doc.rules.tiers }
+
+  const bands: { min: number; max: number; count: number }[] = []
+  for (const size of sizes) {
+    const last = bands[bands.length - 1]
+    if (!last || size > last.max * 1.65) bands.push({ min: size, max: size, count: 1 })
+    else {
+      last.max = size
+      last.count += 1
+    }
+  }
+
+  let growth = preferred
+  for (let step = 1; step < bands.length; step++) {
+    const cap = Math.pow(bands[step].min / START_PLAYER, 1 / step)
+    if (cap < growth) growth = cap
+  }
+  growth = Math.min(MAX_GROWTH, Math.max(1, Number(growth.toFixed(2))))
+
+  return {
+    growth,
+    tiers: bands.map((band) => ({
+      minCm: Number(band.min.toFixed(2)),
+      maxCm: Number(band.max.toFixed(2)),
+      requiredCount: band.count,
+    })),
   }
 }
 
@@ -233,7 +303,14 @@ export function expandProps(doc: LevelDoc): SpawnedProp[] {
   return spawned
 }
 
+export function usesAutoProgression(doc: LevelDoc): boolean {
+  if (doc.rules.progression === "manual") return false
+  if (doc.rules.progression === "auto") return true
+  return doc.id.startsWith("level-")
+}
+
 export function toPlayLevel(doc: LevelDoc): PlayLevel {
+  const planned = usesAutoProgression(doc) ? planProgression(doc) : null
   return {
     id: doc.id,
     name: doc.name,
@@ -249,19 +326,26 @@ export function toPlayLevel(doc: LevelDoc): PlayLevel {
     minZoom: doc.room.minZoom,
     maxZoom: doc.room.maxZoom,
     zoom: doc.room.zoom,
-    growth: Number.isFinite(doc.room.growth) ? Math.max(1.05, doc.room.growth!) : 1.55,
-    zoomStep: Number.isFinite(doc.room.zoomStep) ? Math.max(0, doc.room.zoomStep!) : 0.18,
+    growth: planned?.growth ?? (Number.isFinite(doc.room.growth) ? Math.max(1.05, doc.room.growth!) : 1.55),
+    zoomStep: planned
+      ? Math.min(1, (Number.isFinite(doc.room.zoomStep) ? doc.room.zoomStep! : 0.18) * 2)
+      : (Number.isFinite(doc.room.zoomStep) ? Math.max(0, doc.room.zoomStep!) : 0.18),
     pitch: Number.isFinite(doc.room.pitch) ? Math.max(0, Math.min(1, doc.room.pitch!)) : 0.5,
     maxTime: doc.rules.maxTime,
     handling: handlingOf(doc.rules),
     battery: batteryOf(doc.rules),
-    sizeTiers: doc.rules.tiers.map((tier) => ({
+    sizeTiers: (planned?.tiers ?? doc.rules.tiers).map((tier) => ({
       min: tier.minCm,
       max: tier.maxCm,
       requiredCount: tier.requiredCount,
     })),
     spawns: expandProps(doc),
     assets: doc.assets,
+    start: {
+      x: doc.room.start?.x ?? 0,
+      z: doc.room.start?.z ?? 0,
+      yaw: doc.room.start?.yaw ?? 0,
+    },
   }
 }
 
@@ -290,11 +374,13 @@ export function blankLevel(): LevelDoc {
       growth: 1.55,
       zoomStep: 0.18,
       pitch: 0.5,
+      start: { x: 0, z: 0, yaw: 0 },
     },
     rules: {
       maxTime: 300,
       handling: { ...DEFAULT_HANDLING },
       battery: { ...DEFAULT_BATTERY },
+      progression: "auto",
       tiers: [
         { minCm: 0, maxCm: 2, requiredCount: 8 },
         { minCm: 2, maxCm: 8, requiredCount: 6 },

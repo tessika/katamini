@@ -13,22 +13,31 @@ import {
   expandProps,
   handlingOf,
   hashSeed,
+  planProgression,
+  usesAutoProgression,
+  scaleForSize,
   upsertAsset,
+  withTypeScale,
   type LevelAsset,
   type LevelDoc,
   type LevelProp,
   type PlayReport,
 } from "../lib/level-doc"
-import { createPrimitive, measureGltf, pickupRadius, placeMesh } from "../lib/fit-mesh"
+import { createPrimitive, measureGltf, pickupRadius } from "../lib/fit-mesh"
 import {
   deleteDraft,
+  deleteLevelLocal,
   exportLevel,
   fileObjectUrl,
   importLevelFile,
   listDrafts,
+  listSavedLevels,
   loadDraft,
+  loadLevelLocal,
   saveDraft,
+  saveLevelLocal,
   storeImportedModel,
+  type SavedLevel,
 } from "../lib/level-store"
 import { loadBuiltinLevel, loadLevelIndex, type LevelIndexEntry } from "../lib/level-loader"
 
@@ -67,6 +76,8 @@ export default function Editor({
   const [clusterPlace, setClusterPlace] = useState(false)
   const [armedId, setArmedId] = useState<string | null>(null)
   const [drafts, setDrafts] = useState<{ id: string; name: string }[]>([])
+  const [saved, setSaved] = useState<SavedLevel[]>([])
+  const [panelOpen, setPanelOpen] = useState(true)
   const [builtins, setBuiltins] = useState<LevelIndexEntry[]>([])
   const [status, setStatus] = useState("")
   const docRef = useRef(doc)
@@ -83,6 +94,7 @@ export default function Editor({
 
   useEffect(() => {
     listDrafts().then((rows) => setDrafts(rows)).catch(() => {})
+    setSaved(listSavedLevels())
     loadLevelIndex().then(setBuiltins).catch(() => {})
   }, [])
 
@@ -112,6 +124,23 @@ export default function Editor({
 
     const propsRoot = new THREE.Group()
     scene.add(propsRoot)
+    const startMarker = new THREE.Group()
+    startMarker.name = "start"
+    const startBody = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.35, 0.35, 0.12, 12),
+      new THREE.MeshBasicMaterial({ color: 0x44ff88 })
+    )
+    startBody.name = "start-body"
+    startBody.position.y = 0.12
+    const startAim = new THREE.Mesh(
+      new THREE.ConeGeometry(0.18, 0.55, 8),
+      new THREE.MeshBasicMaterial({ color: 0xffee44 })
+    )
+    startAim.name = "start-aim"
+    startAim.rotation.x = Math.PI / 2
+    startAim.position.set(0, 0.2, 0.75)
+    startMarker.add(startBody, startAim)
+    scene.add(startMarker)
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(1, 1),
       new THREE.MeshStandardMaterial({ color: "#666666", roughness: 1 })
@@ -130,10 +159,13 @@ export default function Editor({
     const keys = { w: false, a: false, s: false, d: false }
     const pointer = {
       dragging: null as string | null,
+      mode: "move" as "move" | "spin" | "scale",
       panning: false,
       orbiting: false,
       lastX: 0,
       lastY: 0,
+      startScale: 1,
+      startDist: 1,
     }
     const raycaster = new THREE.Raycaster()
     const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
@@ -180,10 +212,23 @@ export default function Editor({
       )
       raycaster.setFromCamera(ndc, camera)
       const hits = raycaster.intersectObjects(propsRoot.children, true)
-      for (const hit of hits) {
+      const handle = hits.find((hit) => {
         let node: THREE.Object3D | null = hit.object
-        while (node && node.parent !== propsRoot) node = node.parent
-        if (node?.userData.propId) return node
+        while (node) {
+          if (node.name === "spin" || node.name === "scale") return true
+          node = node.parent
+        }
+        return false
+      })
+      const ordered = handle ? [handle, ...hits] : hits
+      for (const hit of ordered) {
+        let part = ""
+        let node: THREE.Object3D | null = hit.object
+        while (node && node.parent !== propsRoot) {
+          if (node.name === "spin" || node.name === "scale") part = node.name
+          node = node.parent
+        }
+        if (node?.userData.propId) return { group: node, part, distance: hit.distance }
       }
       return null
     }
@@ -191,22 +236,26 @@ export default function Editor({
     const placeArmed = (point: THREE.Vector3) => {
       const assetId = armedRef.current
       if (!assetId) return
-      const asset = docRef.current.assets.find((item) => item.id === assetId) || CATALOG.find((item) => item.id === assetId)
+      const stored = docRef.current.assets.find((item) => item.id === assetId)
+      const catalog = CATALOG.find((item) => item.id === assetId)
+      const asset = stored || catalog
       if (!asset) return
       const id = `p-${Math.random().toString(36).slice(2, 8)}`
-      const sizeCm = 2
+      const sizeCm = asset.sizeCm ?? catalog?.sizeCm ?? 2
+      const meshScale = asset.meshScale ?? catalog?.meshScale ?? 1
       const position: [number, number, number] = [snap(point.x), 0, snap(point.z)]
       const prop: LevelProp = clusterRef.current
         ? {
             id,
             assetId,
             sizeCm,
+            meshScale,
             position,
             yaw: 0,
             placement: "cluster",
             cluster: { ...clusterLayout(sizeCm), seed: hashSeed(id) },
           }
-        : { id, assetId, sizeCm, position, yaw: 0, placement: "stamp" }
+        : { id, assetId, sizeCm, meshScale, position, yaw: 0, placement: "stamp" }
       setDoc((current) => upsertAsset({ ...current, props: [...current.props, prop] }, asset))
       setSelectedId(id)
       setArmedId(null)
@@ -221,16 +270,33 @@ export default function Editor({
       }
       if (event.button !== 0) return
       const point = floorPoint(event)
+      const startHits = raycaster.intersectObject(startMarker, true)
+      const propFirst = propHit(event)
+      const startCloser = startHits.length > 0 && (!propFirst || startHits[0].distance <= propFirst.distance)
+      if (startCloser && point && !armedRef.current) {
+        pointer.dragging = "start"
+        pointer.mode = startHits[0].object.name === "start-aim" ? "aim" : "move"
+        pointer.lastX = snap(point.x)
+        pointer.lastY = snap(point.z)
+        return
+      }
       if (armedRef.current && point) {
         placeArmed(point)
         return
       }
       const hit = propHit(event)
       if (hit) {
-        setSelectedId(hit.userData.propId as string)
-        pointer.dragging = hit.userData.propId as string
-        pointer.lastX = snap(point?.x ?? 0)
-        pointer.lastY = snap(point?.z ?? 0)
+        const propId = hit.group.userData.propId as string
+        setSelectedId(propId)
+        pointer.dragging = propId
+        pointer.mode = hit.part === "spin" || event.shiftKey ? "spin" : hit.part === "scale" ? "scale" : "move"
+        pointer.lastX = point?.x ?? 0
+        pointer.lastY = point?.z ?? 0
+        const prop = docRef.current.props.find((item) => item.id === propId)
+        pointer.startScale = prop?.meshScale ?? 1
+        const dx = (point?.x ?? 0) - hit.group.position.x
+        const dz = (point?.z ?? 0) - hit.group.position.z
+        pointer.startDist = Math.max(0.2, Math.hypot(dx, dz))
         return
       }
       setSelectedId(null)
@@ -258,6 +324,42 @@ export default function Editor({
       if (!pointer.dragging) return
       const point = floorPoint(event)
       if (!point) return
+      const propId = pointer.dragging
+      if (propId === "start") {
+        const start = docRef.current.room.start ?? { x: 0, z: 0, yaw: 0 }
+        if (pointer.mode === "aim") {
+          const yaw = Math.atan2(point.x - start.x, point.z - start.z)
+          setDoc((current) => ({ ...current, room: { ...current.room, start: { x: start.x, z: start.z, yaw } } }))
+          return
+        }
+        const x = snap(point.x)
+        const z = snap(point.z)
+        if (x === pointer.lastX && z === pointer.lastY) return
+        pointer.lastX = x
+        pointer.lastY = z
+        setDoc((current) => ({ ...current, room: { ...current.room, start: { x, z, yaw: start.yaw } } }))
+        return
+      }
+      if (pointer.mode === "spin") {
+        const prop = docRef.current.props.find((item) => item.id === propId)
+        if (!prop) return
+        const angle = Math.atan2(point.x - prop.position[0], point.z - prop.position[2])
+        setDoc((current) => ({
+          ...current,
+          props: current.props.map((item) => item.id === propId ? { ...item, yaw: angle } : item),
+        }))
+        return
+      }
+      if (pointer.mode === "scale") {
+        const prop = docRef.current.props.find((item) => item.id === propId)
+        if (!prop) return
+        const dist = Math.max(0.2, Math.hypot(point.x - prop.position[0], point.z - prop.position[2]))
+        const factor = dist / pointer.startDist
+        const asset = docRef.current.assets.find((item) => item.id === prop.assetId) || CATALOG.find((item) => item.id === prop.assetId)
+        if (!asset) return
+        setDoc((current) => withTypeScale(current, asset, pointer.startScale * factor))
+        return
+      }
       const x = snap(point.x)
       const z = snap(point.z)
       const dx = x - pointer.lastX
@@ -265,7 +367,6 @@ export default function Editor({
       if (dx === 0 && dz === 0) return
       pointer.lastX = x
       pointer.lastY = z
-      const propId = pointer.dragging
       setDoc((current) => ({
         ...current,
         props: current.props.map((prop) =>
@@ -278,8 +379,24 @@ export default function Editor({
 
     const onPointerUp = () => {
       pointer.dragging = null
+      pointer.mode = "move"
       pointer.panning = false
       pointer.orbiting = false
+    }
+
+    const scaleSelection = (event: WheelEvent) => {
+      const propId = selectedRef.current
+      const assetId = propId
+        ? docRef.current.props.find((prop) => prop.id === propId)?.assetId
+        : armedRef.current
+      if (!assetId) return false
+      const asset = docRef.current.assets.find((item) => item.id === assetId) || CATALOG.find((item) => item.id === assetId)
+      if (!asset) return false
+      event.preventDefault()
+      const currentScale = docRef.current.props.find((prop) => prop.assetId === assetId)?.meshScale ?? asset.meshScale ?? 1
+      const factor = event.deltaY > 0 ? 0.92 : 1.08
+      setDoc((current) => withTypeScale(current, asset, currentScale * factor))
+      return true
     }
 
     const onKeyDown = (event: KeyboardEvent) => {
@@ -326,22 +443,22 @@ export default function Editor({
         ),
       }))
     }
-    const nudgeSize = (propId: string, factor: number) => {
-      setDoc((current) => ({
-        ...current,
-        props: current.props.map((prop) => {
-          if (prop.id !== propId) return prop
-          const sizeCm = Math.max(0.2, Number((prop.sizeCm * factor).toFixed(2)))
-          if (prop.placement === "cluster" && prop.cluster) {
-            return { ...prop, sizeCm, cluster: { ...prop.cluster, ...clusterLayout(sizeCm), seed: prop.cluster.seed } }
-          }
-          return { ...prop, sizeCm }
-        }),
-      }))
+      const nudgeSize = (propId: string, factor: number) => {
+      setDoc((current) => {
+        const target = current.props.find((prop) => prop.id === propId)
+        if (!target) return current
+        const known = current.assets.find((asset) => asset.id === target.assetId) || CATALOG.find((asset) => asset.id === target.assetId)
+        if (!known) return current
+        const base = target.meshScale ?? known.meshScale ?? 1
+        return withTypeScale(current, known, base * factor)
+      })
     }
 
     const sync = () => {
       const current = docRef.current
+      const start = current.room.start ?? { x: 0, z: 0, yaw: 0 }
+      startMarker.position.set(start.x, 0, start.z)
+      startMarker.rotation.y = start.yaw
       const room = current.room.sizeCm
       floor.scale.set(room, room, 1)
       if (!grid || gridSize !== room) {
@@ -396,8 +513,10 @@ export default function Editor({
             if (!holding.parent) return
             const model = cloneTemplate(template)
             model.name = "model"
-            placeMesh(model, holding.userData.sizeCm as number, holding.userData.extent as number)
-            holding.userData.appliedSize = holding.userData.sizeCm
+            const scale = (holding.userData.meshScale as number) ?? 1
+            model.scale.setScalar(scale)
+            model.position.y = 0.05
+            holding.userData.appliedScale = scale
             holding.add(model)
           })
         }
@@ -405,18 +524,53 @@ export default function Editor({
         group.rotation.y = spawn.yaw
         group.userData.propId = spawn.propId
         group.userData.sizeCm = spawn.sizeCm
+        const catalogScale = CATALOG.find((item) => item.id === spawn.assetId)?.meshScale
+        group.userData.meshScale = spawn.meshScale ?? asset.meshScale ?? catalogScale ?? 1
         group.userData.extent = asset.nativeExtent
         const model = group.getObjectByName("model")
-        if (model && group.userData.appliedSize !== spawn.sizeCm) {
-          placeMesh(model, spawn.sizeCm, asset.nativeExtent)
-          group.userData.appliedSize = spawn.sizeCm
+        const scale = group.userData.meshScale as number
+        if (model && group.userData.appliedScale !== scale) {
+          model.scale.setScalar(scale)
+          model.position.y = 0.05
+          group.userData.appliedScale = scale
         }
+        const radius = pickupRadius(spawn.sizeCm)
         const gizmo = group.getObjectByName("gizmo")
+        const selected = spawn.propId === selectedRef.current
         if (gizmo) {
-          const radius = pickupRadius(spawn.sizeCm)
           gizmo.scale.setScalar(radius)
           gizmo.position.y = radius
-          gizmo.visible = spawn.propId === selectedRef.current
+          gizmo.visible = selected
+        }
+        let spin = group.getObjectByName("spin")
+        let knob = group.getObjectByName("scale")
+        if (selected) {
+          if (!spin) {
+            spin = new THREE.Mesh(
+              new THREE.TorusGeometry(1, 0.08, 6, 20),
+              new THREE.MeshBasicMaterial({ color: 0xff66aa })
+            )
+            spin.name = "spin"
+            spin.rotation.x = Math.PI / 2
+            group.add(spin)
+          }
+          if (!knob) {
+            knob = new THREE.Mesh(
+              new THREE.SphereGeometry(0.18, 8, 6),
+              new THREE.MeshBasicMaterial({ color: 0x66ccff })
+            )
+            knob.name = "scale"
+            group.add(knob)
+          }
+          const ring = Math.max(radius * 1.4, 0.45)
+          spin.scale.setScalar(ring)
+          spin.position.y = 0.05
+          spin.visible = true
+          knob.position.set(ring, 0.2, 0)
+          knob.visible = true
+        } else {
+          if (spin) spin.visible = false
+          if (knob) knob.visible = false
         }
       }
     }
@@ -446,6 +600,7 @@ export default function Editor({
       renderer.setSize(window.innerWidth, window.innerHeight)
     }
     const onWheel = (event: WheelEvent) => {
+      if (scaleSelection(event)) return
       view.dist = Math.min(80, Math.max(3, view.dist + event.deltaY * 0.02))
     }
 
@@ -455,7 +610,7 @@ export default function Editor({
     window.addEventListener("keydown", onKeyDown)
     window.addEventListener("keyup", onKeyUp)
     window.addEventListener("resize", onResize)
-    renderer.domElement.addEventListener("wheel", onWheel, { passive: true })
+    renderer.domElement.addEventListener("wheel", onWheel, { passive: false })
     renderer.domElement.addEventListener("contextmenu", (event) => event.preventDefault())
     const onDragOver = (event: DragEvent) => {
       if (event.dataTransfer?.types.includes("Files")) event.preventDefault()
@@ -474,6 +629,7 @@ export default function Editor({
       cancelAnimationFrame(frame)
       renderer.domElement.remove()
       renderer.dispose()
+      renderer.domElement.removeEventListener("wheel", onWheel)
       window.removeEventListener("pointermove", onPointerMove)
       window.removeEventListener("pointerup", onPointerUp)
       window.removeEventListener("keydown", onKeyDown)
@@ -485,6 +641,33 @@ export default function Editor({
   }, [])
 
   const selected = doc.props.find((prop) => prop.id === selectedId) || null
+  const plan = planProgression(doc)
+  const autoGrowth = usesAutoProgression(doc)
+  const typeId = selected?.assetId ?? armedId
+  const typeStored = typeId ? doc.assets.find((asset) => asset.id === typeId) : undefined
+  const typeCatalog = typeId ? CATALOG.find((asset) => asset.id === typeId) : undefined
+  const typeAsset = typeStored || typeCatalog || null
+  const typeScale = selected?.meshScale ?? typeStored?.meshScale ?? typeCatalog?.meshScale ?? 1
+  const typeSize = selected?.sizeCm ?? typeStored?.sizeCm ?? typeCatalog?.sizeCm ?? 2
+
+  const applyType = (assetId: string, patch: { meshScale?: number; sizeCm?: number }) => {
+    setDoc((current) => {
+      const known = current.assets.find((asset) => asset.id === assetId) || CATALOG.find((asset) => asset.id === assetId)
+      if (!known) return current
+      const meshScale = patch.meshScale ?? (patch.sizeCm != null ? scaleForSize(patch.sizeCm, known.nativeExtent) : known.meshScale ?? 1)
+      return withTypeScale(current, known, meshScale)
+    })
+  }
+
+  const saveLevel = () => {
+    try {
+      saveLevelLocal(doc)
+      setSaved(listSavedLevels())
+      setStatus(`Saved “${doc.name}”`)
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Save failed")
+    }
+  }
 
   const updateProp = (propId: string, patch: Partial<LevelProp>) => {
     setDoc((current) => ({
@@ -531,11 +714,30 @@ export default function Editor({
           </button>
         ))}
       </div>
-      <aside className="absolute top-3 right-3 bottom-3 w-80 overflow-auto bg-black/80 p-3 text-sm">
-        <div className="mb-3 flex gap-2">
+      {panelOpen ? (
+      <aside className="absolute top-3 right-3 bottom-3 z-10 w-80 overflow-auto bg-black/80 p-3 text-sm">
+        <div className="mb-3 flex flex-wrap gap-2">
+          <button className="rounded bg-pink-500 px-2 py-1" onClick={saveLevel}>Save</button>
           <button className="rounded bg-white px-2 py-1 text-black" onClick={() => onPlaytest(doc)}>Play</button>
           <button className="rounded bg-white px-2 py-1 text-black" onClick={() => exportLevel(doc).catch((err: unknown) => setStatus(err instanceof Error ? err.message : "Export failed"))}>Export</button>
           <button className="rounded bg-white/20 px-2 py-1" onClick={onExit}>Menu</button>
+          <button className="rounded bg-white/20 px-2 py-1" onClick={() => setPanelOpen(false)}>Hide</button>
+        </div>
+        <div className="mb-3">
+          <p className="mb-1 font-bold">Saved levels</p>
+          {saved.length === 0 && <p className="text-white/60">Nothing saved yet.</p>}
+          {saved.map((level) => (
+            <div key={level.id} className="mb-1 flex gap-2">
+              <button className="flex-1 truncate text-left" onClick={() => {
+                const loaded = loadLevelLocal(level.id)
+                if (!loaded) return
+                setDoc(loaded)
+                setSelectedId(null)
+                setStatus(`Opened ${loaded.name}`)
+              }}>{level.name}</button>
+              <button onClick={() => { deleteLevelLocal(level.id); setSaved(listSavedLevels()) }}>x</button>
+            </div>
+          ))}
         </div>
         <label className="mb-2 block">Name
           <input className="mt-1 w-full bg-white/10 px-2 py-1" value={doc.name} onChange={(event) => setDoc({ ...doc, name: event.target.value })} />
@@ -586,7 +788,7 @@ export default function Editor({
           <p className="mb-2 text-white/70">Zoom scale and step-out are halfway from the earlier camera. Raise them if the view stays too tight.</p>
           <div className="grid grid-cols-2 gap-2">
             <label>Growth
-              <input className="mt-1 w-full bg-white/10 px-2 py-1" type="number" min={1.05} step="0.05" value={doc.room.growth ?? 1.55} onChange={(event) => setDoc({ ...doc, room: { ...doc.room, growth: Math.max(1.05, Number(event.target.value) || 1.55) } })} />
+              <input className="mt-1 w-full bg-white/10 px-2 py-1" type="number" min={1.05} step="0.05" value={autoGrowth ? plan.growth : (doc.room.growth ?? 1.55)} onChange={(event) => setDoc({ ...doc, room: { ...doc.room, growth: Math.max(1.05, Number(event.target.value) || 1.55) } })} />
             </label>
             <label>Zoom scale
               <input className="mt-1 w-full bg-white/10 px-2 py-1" type="number" min={1} step="0.05" value={doc.room.zoom ?? 2.6} onChange={(event) => setDoc({ ...doc, room: { ...doc.room, zoom: Math.max(1, Number(event.target.value) || 2.6) } })} />
@@ -697,12 +899,18 @@ export default function Editor({
             if (file) void importGltf(file)
           }} />
         </label>
-        {selected && (
+        {typeAsset && (
           <div className="mb-3 border border-white/20 p-2">
-            <p className="mb-2 font-bold">{selected.assetId}</p>
-            <label className="mb-2 block">Size cm
-              <input className="mt-1 w-full bg-white/10 px-2 py-1" type="number" step="0.1" value={selected.sizeCm} onChange={(event) => updateProp(selected.id, { sizeCm: Number(event.target.value) || 0.2 })} />
+            <p className="mb-2 font-bold">{typeAsset.name || typeAsset.id}</p>
+            <p className="mb-2 text-white/70">Proportion and size apply to every {typeAsset.name || typeAsset.id}.</p>
+            <label className="mb-2 block">Proportion
+              <input className="mt-1 w-full bg-white/10 px-2 py-1" type="number" min={0.01} step="0.01" value={typeScale} onChange={(event) => applyType(typeAsset.id, { meshScale: Math.max(0.01, Number(event.target.value) || 0.01) })} />
             </label>
+            <label className="mb-2 block">Size cm
+              <input className="mt-1 w-full bg-white/10 px-2 py-1" type="number" step="0.1" value={typeSize} onChange={(event) => applyType(typeAsset.id, { sizeCm: Math.max(0.2, Number(event.target.value) || 0.2) })} />
+            </label>
+        {selected && (
+          <div>
             <div className="mb-2 flex gap-2">
               <button className="rounded bg-white/20 px-2 py-1" onClick={() => updateProp(selected.id, { yaw: selected.yaw - Math.PI / 12 })}>Yaw left</button>
               <button className="rounded bg-white/20 px-2 py-1" onClick={() => updateProp(selected.id, { yaw: selected.yaw + Math.PI / 12 })}>Yaw right</button>
@@ -721,7 +929,9 @@ export default function Editor({
             <button className="rounded bg-white/20 px-2 py-1" onClick={() => { setDoc({ ...doc, props: doc.props.filter((prop) => prop.id !== selected.id) }); setSelectedId(null) }}>Delete</button>
           </div>
         )}
-        <div className="mb-2">
+          </div>
+        )}
+        {!autoGrowth && <div className="mb-2">
           <p className="mb-1 font-bold">Tiers</p>
           {doc.rules.tiers.map((tier, index) => (
             <div key={index} className="mb-1 flex gap-1">
@@ -742,7 +952,7 @@ export default function Editor({
               }} />
             </div>
           ))}
-        </div>
+        </div>}
         <label className="mb-2 block">Music, one path per line
           <textarea className="mt-1 h-16 w-full bg-white/10 px-2 py-1" value={doc.room.music.join("\n")} onChange={(event) => setDoc({ ...doc, room: { ...doc.room, music: event.target.value.split("\n").map((line) => line.trim()).filter(Boolean) } })} />
         </label>
@@ -785,10 +995,22 @@ export default function Editor({
             </div>
           ))}
         </div>
+        {autoGrowth && (
+          <div className="mb-3 border border-white/20 p-2">
+            <p className="mb-1 font-bold">Growth from your objects</p>
+            <p className="text-white/70">Each step is a small bump, and the roomba stays smaller than the objects in that step.</p>
+            {plan.tiers.map((tier, index) => (
+              <p key={index} className="mt-1 text-white/80">{tier.requiredCount} objects from {tier.minCm} to {tier.maxCm} cm</p>
+            ))}
+          </div>
+        )}
         {status && <p className="mt-3 text-pink-300">{status}</p>}
       </aside>
+      ) : (
+        <button className="absolute top-3 right-3 z-10 rounded bg-black/80 px-3 py-2 text-sm" onClick={() => setPanelOpen(true)}>Menu</button>
+      )}
       <p className="absolute bottom-3 left-3 max-w-xl text-sm text-white/80">
-        Click a prop, then the floor. Drag to move. [ ] yaw, - = size. Right-drag orbits. WASD pans. The white bubble is the pickup size.
+        The green disc is the roomba. Drag it to place the start, and drag the yellow arrow to set facing. Drag objects to move them. Drag the pink ring to turn one object. Drag the blue dot, or scroll, to resize that whole type. Right-drag orbits.
       </p>
     </div>
   )

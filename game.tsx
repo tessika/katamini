@@ -562,7 +562,9 @@ const Game: React.FC<{ level: LevelDoc; onExit: (report?: PlayReport) => void; m
       const onTop = 1 - THREE.MathUtils.smoothstep(size, 1.5, 7);
       child.position.lerpVectors(clingSphere, clingPile, onTop);
     };
-    const playerDirection = new THREE.Vector3(0, 0, -1);
+    const playerDirection = new THREE.Vector3(-Math.sin(currentLevel.start.yaw), 0, -Math.cos(currentLevel.start.yaw));
+    player.position.x = currentLevel.start.x;
+    player.position.z = currentLevel.start.z;
     const moveDirection = new THREE.Vector3();
     const nextPosition = new THREE.Vector3();
     const camUp = new THREE.Vector3(0, 1, 0);
@@ -906,11 +908,16 @@ const Game: React.FC<{ level: LevelDoc; onExit: (report?: PlayReport) => void; m
     const playerZoom = player.scale.x * zoomFactor;
     const objectZoom = focusExtent * zoomFactor;
     const blend = currentLevel.zoomStep;
-    const styledZoom = THREE.MathUtils.clamp(
-      playerZoom + Math.max(0, objectZoom - playerZoom) * blend,
-      minZoom,
-      maxZoom
-    );
+    const linearZoom = playerZoom + Math.max(0, objectZoom - playerZoom) * blend;
+    const pulled = minZoom + Math.max(0, linearZoom - minZoom) * 2.5;
+    const roomCap = Math.min(maxZoom, Math.max(minZoom + 1, roomSize * 0.46));
+    const easeStart = roomCap * 0.62;
+    let styledZoom = pulled;
+    if (pulled > easeStart) {
+      const t = THREE.MathUtils.clamp((pulled - easeStart) / Math.max(0.01, roomCap - easeStart), 0, 1);
+      styledZoom = easeStart + (roomCap - easeStart) * (1 - Math.pow(1 - t, 2));
+    }
+    styledZoom = THREE.MathUtils.clamp(styledZoom, minZoom, maxZoom);
     const growthRaw = Math.log2(Math.max(focusExtent, 0.16) / 0.16) / Math.log2(5);
     const growthT = Math.min(1, Math.max(0, (growthRaw - 0.1) / 0.9));
     const growthBlend = growthT * growthT * (3 - 2 * growthT);
